@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+requiredVersions:
+  extensions:
+    azure.ai.agents: '>=1.0.0-beta.4'
+
+name: zavafinance
+services:
+  zavafinance:
+    host: azure.ai.agent
+    # Code deploy. The packager uploads one project directory, which is why the routing agent,
+    # the three tools and the finance logic live inside this project rather than in a
+    # referenced library: a project reference is dropped and the remote build fails.
+    project: src/ZavaFinance.Agent
+    language: csharp
+    codeConfiguration:
+      runtime: dotnet_10
+      entryPoint: ZavaFinance.Agent.dll
+    kind: hosted
+    name: zavafinance
+    displayName: Zava Finance
+    description: >-
+      Explains KPIs, builds statements from the finance lakehouse, and analyses open-ended
+      questions about what moved the numbers. Every answer is produced with the signed-in
+      user's own permissions.
+    protocols:
+      - protocol: responses
+        version: 2.0.0
+    environmentVariables:
+      # FOUNDRY_PROJECT_ENDPOINT is injected by the platform and must not be declared here:
+      # the whole FOUNDRY_* and AGENT_* namespace is reserved, and declaring one is rejected
+      # at deploy time. The model deployment therefore travels under a neutral name.
+      - name: ModelDeployment
+        value: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
+
+      # The isolation boundary's secret. Regenerating it changes every derived session key
+      # and orphans every existing conversation.
+      - name: Orchestrator__SessionKeySalt
+        value: ${ORCHESTRATOR_SESSION_KEY_SALT}
+      - name: Orchestrator__LogSubagentText
+        value: 'false'
+
+      # On-Behalf-Of. The audience is what the forwarded assertion must be issued for.
+      - name: Obo__ClientId
+        value: ${OBO_CLIENT_ID}
+      - name: Obo__TenantId
+        value: ${OBO_TENANT_ID}
+      - name: Obo__Audience
+        value: ${OBO_AUDIENCE}
+      - name: Obo__ClientSecret
+        value: ${OBO_CLIENT_SECRET}
+      - name: Obo__UserTokenHeader
+        value: x-client-user-token
+
+      - name: CopilotStudioAgent__EnvironmentId
+        value: ${COPILOT_STUDIO_ENVIRONMENT_ID}
+      - name: CopilotStudioAgent__SchemaName
+        value: ${COPILOT_STUDIO_SCHEMA_NAME}
+
+      - name: Fabric__SqlEndpoint
+        value: ${FABRIC_SQL_ENDPOINT}
+      - name: Fabric__Database
+        value: ${FABRIC_DATABASE}
+      - name: Fabric__WorkspaceId
+        value: ${FABRIC_WORKSPACE_ID}
+      - name: Fabric__DataAgentId
+        value: ${FABRIC_DATA_AGENT_ID}
+    container:
+      resources:
+        cpu: '1'
+        memory: 2Gi
+infra:
+  provider: microsoft.foundry

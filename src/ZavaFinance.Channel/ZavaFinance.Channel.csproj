@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AzureFunctionsVersion>v4</AzureFunctionsVersion>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>ZavaFinance.Channel</RootNamespace>
+    <AssemblyName>ZavaFinance.Channel</AssemblyName>
+    <UserSecretsId>zavafinance-channel</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ZavaFinance.Agent\ZavaFinance.Agent.csproj" />
+  </ItemGroup>
+
+  <!--
+    Every package here is GA. Durable Functions is used only for
+    acknowledge-then-answer-proactively, which is forced by the 10-15 second channel timeout
+    rather than by anything in the agent. The routing conversation is serialized into this
+    solution's own store rather than a durable entity, which is what keeps
+    Microsoft.Agents.AI.DurableTask and Microsoft.Agents.AI.Hosting.AzureFunctions - neither of
+    which has a GA release - out of this project entirely.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.Hosting.AspNetCore" Version="1.8.77" />
+    <PackageReference Include="Microsoft.Agents.Authentication.Msal" Version="1.8.77" />
+    <PackageReference Include="Microsoft.Agents.Storage.Blobs" Version="1.8.77" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.52.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.DurableTask" Version="1.16.4" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.DurableTask.AzureManaged" Version="1.6.0" />
+    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.1.0" />
+    <PackageReference Include="Microsoft.DurableTask.Client.AzureManaged" Version="1.25.0" />
+    <PackageReference Include="Microsoft.DurableTask.Worker" Version="1.25.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
+    <PackageReference Include="Microsoft.IdentityModel.Validators" Version="8.22.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0" />
+    <PackageReference Include="Microsoft.OpenTelemetry" Version="1.0.7" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="host.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

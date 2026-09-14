@@ -1,0 +1,5 @@
+**/.git*
+**/.vscode
+**/bin
+**/obj
+local.settings.json

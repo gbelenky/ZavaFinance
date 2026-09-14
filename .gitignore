@@ -1,0 +1,40 @@
+## Build output
+bin/
+obj/
+publish/
+artifacts/
+*.user
+
+## Deployment artifacts
+deploy.zip
+*.zip
+
+## Secrets - never commit
+*.local
+.salt.local
+.botsecret.local
+*.local.md
+local.settings.json
+appsettings.Development.json
+appsettings.Local.json
+*.pfx
+*.pem
+*.key
+
+## App package build artifacts
+appPackage/build/
+
+## IDE
+.vs/
+.idea/
+*.suo
+
+## Local planning artifacts (also the azd environment folder)
+.azure/
+
+## Demo recordings (large binaries)
+demo/
+
+## OS
+Thumbs.db
+.DS_Store

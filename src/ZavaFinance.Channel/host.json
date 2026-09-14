@@ -1,0 +1,23 @@
+{
+  "version": "2.0",
+  "telemetryMode": "OpenTelemetry",
+  "logging": {
+    "logLevel": {
+      "DurableTask.AzureManagedBackend": "Information",
+      "Microsoft.Agents.AI.DurableTask": "Warning",
+      "Microsoft.Agents.AI": "Warning"
+    }
+  },
+  "extensions": {
+    "http": {
+      "routePrefix": ""
+    },
+    "durableTask": {
+      "hubName": "%TASKHUB_NAME%",
+      "storageProvider": {
+        "type": "azureManaged",
+        "connectionStringName": "DURABLE_TASK_SCHEDULER_CONNECTION_STRING"
+      }
+    }
+  }
+}

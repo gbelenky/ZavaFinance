@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ZavaFinance.Agent/ZavaFinance.Agent.csproj" />
+    <Project Path="src/ZavaFinance.Channel/ZavaFinance.Channel.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ZavaFinance.Tests/ZavaFinance.Tests.csproj" />
+  </Folder>
+</Solution>

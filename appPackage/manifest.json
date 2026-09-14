@@ -1,0 +1,82 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.21/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.21",
+  "version": "1.0.0",
+  "id": "${{BOT_ID}}",
+  "developer": {
+    "name": "Zava",
+    "websiteUrl": "https://example.com",
+    "privacyUrl": "https://example.com/privacy",
+    "termsOfUseUrl": "https://example.com/terms"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "Zava Finance",
+    "full": "Zava Finance"
+  },
+  "description": {
+    "short": "Explains KPIs, builds statements, and analyses finance data.",
+    "full": "Ask what a KPI means, ask for a statement for an organization and period, or ask an open-ended question about what moved the numbers. Every answer is produced with your own permissions."
+  },
+  "accentColor": "#0F6CBD",
+  "bots": [
+    {
+      "botId": "${{BOT_ID}}",
+      "scopes": [
+        "personal",
+        "team",
+        "copilot"
+      ],
+      "isNotificationOnly": false,
+      "supportsCalling": false,
+      "supportsVideo": false,
+      "supportsFiles": false,
+      "commandLists": [
+        {
+          "scopes": [
+            "personal",
+            "team",
+            "copilot"
+          ],
+          "commands": [
+            {
+              "title": "Explain a KPI",
+              "description": "What is net revenue?"
+            },
+            {
+              "title": "Get a statement",
+              "description": "Show the statement for EMEA, Q4 2025"
+            },
+            {
+              "title": "Analyse a change",
+              "description": "Why did APAC gross margin change from Q2 to Q3 2026?"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "copilotAgents": {
+    "customEngineAgents": [
+      {
+        "type": "bot",
+        "id": "${{BOT_ID}}"
+      }
+    ]
+  },
+  "webApplicationInfo": {
+    "id": "${{BOT_ID}}",
+    "resource": "api://botid-${{BOT_ID}}"
+  },
+  "permissions": [
+    "identity",
+    "messageTeamMembers"
+  ],
+  "validDomains": [
+    "${{APP_HOSTNAME}}",
+    "token.botframework.com"
+  ]
+}
