@@ -1,11 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 
+using System.ComponentModel;
+using System.Reflection;
 using System.Text.Json;
 using Azure.AI.Projects;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using OpenAI.Responses;
 using ZavaFinance.Core.Abstractions;
 using ZavaFinance.Core.Configuration;
 using ZavaFinance.Core.CopilotStudio;
@@ -15,35 +18,32 @@ using ZavaFinance.Core.Tools;
 namespace ZavaFinance.Core.Agent;
 
 /// <summary>
-/// The Microsoft Agent Framework routing agent.
+/// Native function selection with host-controlled execution and verbatim tool responses.
 /// <para>
-/// The model <b>routes</b>; it never writes the answer. It selects one tool and extracts that
-/// tool's arguments, and the selected tool's output is returned verbatim through
-/// <see cref="ToolPassthrough"/>. Registering real functions on <c>ChatOptions.Tools</c> would let
-/// the framework invoke them and feed their output back through the model, which measurably
-/// destroys sourced answers — a 2,827-character cited reply came back as 1,119 characters with the
-/// citation dropped, while the model was instructed to return it verbatim.
+/// The model selects a native function and supplies its arguments. The host executes it with
+/// the caller's identity and returns its output directly, without a second model generation
+/// pass. Function declarations expose schemas without granting automatic invocation.
 /// </para>
 /// <para>
-/// The host supplies an <see cref="IDownstreamTokenProvider"/>, so the same routing and the same
-/// tools run unchanged whether the caller arrived through the Teams / Microsoft 365 Copilot
-/// channel or through the Foundry hosted agent.
+/// The hosted handler supplies a caller-bound <see cref="IDownstreamTokenProvider"/>.
+/// Channel callers and direct Responses API callers use this same hosted execution path.
 /// </para>
 /// </summary>
 public sealed class OrchestratorAgent
 {
     public const string AgentName = "zavafinance";
+    internal const int NativeSessionVersion = 1;
+    internal const string WithheldResult =
+        "Application handling requested. No execution result is supplied to the model.";
 
-    private static readonly string SystemPrompt =
-        $"""
-        You are an orchestrator. Your only job is to select exactly one route and extract its
-        arguments. Return the requested structured response and no prose outside it.
+    private const string SystemPrompt =
+        """
+        You are Zava Finance. Use native function calling to select at most one finance tool
+        and supply its arguments. Do not describe a tool call in prose or return a route object.
 
-        Available tools:
-        {OrchestratorToolCatalog.BuildPromptSection()}
-
-        - Select none only when no tool applies. Set message to a brief description of
-          what you can help with.
+        When no tool applies, call none of them and respond briefly with what you can help
+        with: get_kpi_info for KPI definitions, get_statement for a specific figure, or
+        explore_finance for open-ended finance analysis.
 
         When a request is genuinely borderline, prefer the cheaper tool that can ask for what
         it is missing. get_statement returns instantly and requests any absent organization or
@@ -59,12 +59,15 @@ public sealed class OrchestratorAgent
         last quarter?" inherits the KPI, organization and period already established.
 
         Never answer a KPI or statement question yourself. Never invent missing arguments.
-        The host executes the selected tool after your routing turn and returns the tool
-        result verbatim.
+        For an unknown business argument, omit it if optional or supply an empty string.
+        Never invent values just to fill function arguments.
+        The host executes the selected tool and returns its result verbatim. Tool results
+        are withheld from your history; result markers contain no financial information and
+        are not evidence of success. Always call a tool again for a fresh finance answer.
         """;
 
     private readonly ICopilotStudioClientFactory _clientFactory;
-    private readonly OrchestratorSessionStore _sessionStore;
+    private readonly IAgentSessionStore _sessionStore;
     private readonly IStatementQueryFactory _statementQueryFactory;
     private readonly IFabricDataAgentClientFactory _dataAgentFactory;
     private readonly FabricOptions _fabricOptions;
@@ -75,7 +78,7 @@ public sealed class OrchestratorAgent
 
     public OrchestratorAgent(
         ICopilotStudioClientFactory clientFactory,
-        OrchestratorSessionStore sessionStore,
+        IAgentSessionStore sessionStore,
         IStatementQueryFactory statementQueryFactory,
         IFabricDataAgentClientFactory dataAgentFactory,
         FabricOptions fabricOptions,
@@ -96,20 +99,51 @@ public sealed class OrchestratorAgent
 
     public static string SystemInstructions => SystemPrompt;
 
+    internal static IReadOnlyList<AIFunctionDeclaration> ToolDeclarations { get; } =
+        DiscoverToolDeclarations(typeof(KpiInfoTool), typeof(StatementTool), typeof(ExploreFinanceTool));
+
+    // Only annotated methods on these explicitly supplied classes become model-visible tools.
+    internal static IReadOnlyList<AIFunctionDeclaration> DiscoverToolDeclarations(params Type[] toolTypes) =>
+        Array.AsReadOnly(DiscoverToolMethods(toolTypes)
+            .Select(DeclareTool)
+            .OrderBy(tool => tool.Name, StringComparer.Ordinal)
+            .ToArray());
+
+    private static IEnumerable<MethodInfo> DiscoverToolMethods(params Type[] toolTypes) =>
+        toolTypes.SelectMany(type => type.GetMethods(
+                BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+            .Where(method => method.IsDefined(typeof(OrchestratorToolAttribute), inherit: false));
+
     /// <summary>
-    /// Builds the routing agent. Both hosts and the routing eval construct it through this one
-    /// factory, so all three exercise a single definition — a golden-set run that measured a
-    /// differently configured agent would not gate anything.
+    /// Builds the same routing agent for hosted execution and the routing evaluation.
     /// </summary>
     public static AIAgent CreateRoutingAgent(
         AIProjectClient projectClient, FoundryOptions foundryOptions) =>
-        projectClient.AsAIAgent(new ChatClientAgentOptions
+        projectClient.AsAIAgent(CreateAgentOptions(foundryOptions));
+
+    internal static AIAgent CreateRoutingAgent(
+        IChatClient chatClient, FoundryOptions foundryOptions) =>
+        new ChatClientAgent(chatClient, CreateAgentOptions(foundryOptions));
+
+    private static ChatClientAgentOptions CreateAgentOptions(FoundryOptions foundryOptions) =>
+        new()
         {
             Name = AgentName,
+            UseProvidedChatClientAsIs = true,
+            ChatHistoryProvider = new InMemoryChatHistoryProvider(),
             ChatOptions = new ChatOptions
             {
                 ModelId = foundryOptions.ModelDeployment,
                 Instructions = SystemInstructions,
+                Tools = [.. ToolDeclarations],
+                ToolMode = ChatToolMode.Auto,
+                AllowMultipleToolCalls = false,
+                // Keep history local so the host controls call/result pairing without
+                // submitting the permissioned answer to a server-side conversation.
+                RawRepresentationFactory = _ => new CreateResponseOptions
+                {
+                    StoredOutputEnabled = false
+                },
 
                 // Routing is a classification, not a generation. Sampling was observed to flip
                 // borderline utterances between tools across identical runs, which means the same
@@ -117,14 +151,39 @@ public sealed class OrchestratorAgent
                 // makes the golden set a coin flip instead of a gate.
                 Temperature = 0
             }
-        });
+        };
+
+    private static AIFunctionDeclaration DeclareTool(MethodInfo method)
+    {
+        var attribute = method.GetCustomAttribute<OrchestratorToolAttribute>()
+            ?? throw new InvalidOperationException($"Tool method '{method.Name}' has no tool name.");
+        string? description = method.GetCustomAttribute<DescriptionAttribute>()?.Description;
+
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            throw new InvalidOperationException($"Tool '{attribute.Name}' has no description.");
+        }
+
+        foreach (ParameterInfo parameter in method.GetParameters()
+                     .Where(parameter => parameter.ParameterType != typeof(CancellationToken)))
+        {
+            if (string.IsNullOrWhiteSpace(parameter.GetCustomAttribute<DescriptionAttribute>()?.Description))
+            {
+                throw new InvalidOperationException(
+                    $"Parameter '{parameter.Name}' of tool '{attribute.Name}' has no description.");
+            }
+        }
+
+        // Schemas only: no tool instance or delegated credentials are bound to the model.
+        return AIFunctionFactory.CreateDeclaration(
+            attribute.Name, description, AIJsonUtilities.CreateFunctionJsonSchema(method));
+    }
 
     public async Task<string> RunAsync(
         AIAgent routingAgent,
         IDownstreamTokenProvider tokenProvider,
         string sessionKey,
         string question,
-        Func<string?, CancellationToken, Task> onRouteSelected,
         CancellationToken cancellationToken)
     {
         OrchestratorSessionState state =
@@ -135,27 +194,35 @@ public sealed class OrchestratorAgent
 
         try
         {
-            AgentResponse<OrchestratorRoute> response =
-                await routingAgent.RunAsync<OrchestratorRoute>(
-                    question, session, cancellationToken: cancellationToken);
+            AgentResponse response = await SelectToolAsync(
+                routingAgent, question, session, cancellationToken, _options.MaxHistoryMessages);
+            FunctionCallContent? call = response.Messages.SelectMany(message => message.Contents)
+                .OfType<FunctionCallContent>().SingleOrDefault();
+            string toolName = call?.Name ?? FinanceToolNames.NoTool;
 
             _logger.LogInformation(
-                "Router selected {Tool}.", response.Result.Tool);
+                "Model selected {Tool}.", toolName);
 
-            await onRouteSelected(response.Result.Tool, cancellationToken);
-
-            return await ExecuteRouteAsync(
-                response.Result, tokenProvider, state, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return call is not null
+                ? await InvokeToolAsync(call, CreateToolFactories(tokenProvider, state), cancellationToken)
+                : response.Text;
+        }
+        catch (ToolSelectionException ex)
+        {
+            _logger.LogWarning(ex, "Rejected invalid native function selection.");
+            return "I could not select a valid finance tool for that request. Please try asking "
+                + "one KPI definition, statement, or finance analysis question at a time.";
         }
         finally
         {
-            // The serialized session carries the routing conversation only. Tool results and
-            // access tokens never enter it.
-            await PersistSessionAsync(routingAgent, session, state, cancellationToken);
+            // Complete local persistence even when tool execution was cancelled.
+            using var persistenceTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await PersistSessionAsync(routingAgent, session, state, persistenceTimeout.Token);
 
             try
             {
-                await _sessionStore.SaveAsync(sessionKey, state, cancellationToken);
+                await _sessionStore.SaveAsync(sessionKey, state, persistenceTimeout.Token);
             }
             catch (Exception ex)
             {
@@ -173,71 +240,185 @@ public sealed class OrchestratorAgent
         }
     }
 
-    private async Task<string> ExecuteRouteAsync(
-        OrchestratorRoute route,
+    internal static async Task<AgentResponse> SelectToolAsync(
+        AIAgent agent, string question, AgentSession session, CancellationToken cancellationToken,
+        int maxHistoryMessages = OrchestratorOptions.DefaultMaxHistoryMessages)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxHistoryMessages, 3);
+        if (agent is not ChatClientAgent { ChatHistoryProvider: InMemoryChatHistoryProvider history })
+        {
+            throw new InvalidOperationException("Native tool selection requires local chat history.");
+        }
+
+        List<ChatMessage> messages = TrimHistory(history.GetMessages(session).ToList(), maxHistoryMessages - 1);
+        history.SetMessages(session, messages.ToList());
+        messages.Add(new ChatMessage(ChatRole.User, question));
+        try
+        {
+            AgentResponse response = await agent.RunAsync(
+                question, session, cancellationToken: cancellationToken);
+            FunctionCallContent? call = ValidateToolCall(response);
+
+            if (call is not null)
+            {
+                messages.Add(new ChatMessage(ChatRole.Assistant, [call]));
+                messages.Add(new ChatMessage(ChatRole.Tool,
+                    [new FunctionResultContent(call.CallId, WithheldResult)]));
+            }
+            else
+            {
+                messages.Add(new ChatMessage(ChatRole.Assistant, response.Text));
+            }
+
+            return response;
+        }
+        finally
+        {
+            // Replace the SDK's automatic response history with validated calls and paired,
+            // content-free markers. Rejected calls and incidental model prose are not replayed.
+            // This is a local update, not a second model request or a claim of tool success.
+            history.SetMessages(session, TrimHistory(messages, maxHistoryMessages));
+        }
+    }
+
+    private static List<ChatMessage> TrimHistory(List<ChatMessage> messages, int limit)
+    {
+        int start = Math.Max(0, messages.Count - limit);
+        // Drop whole turns, never leave a native call without its matching result.
+        while (start < messages.Count && messages[start].Role != ChatRole.User)
+        {
+            start++;
+        }
+        return messages.GetRange(start, messages.Count - start);
+    }
+
+    internal static FunctionCallContent? ValidateToolCall(AgentResponse response)
+    {
+        FunctionCallContent[] calls = [.. response.Messages
+            .SelectMany(message => message.Contents).OfType<FunctionCallContent>()];
+
+        if (calls.Length == 0)
+        {
+            if (string.IsNullOrWhiteSpace(response.Text))
+            {
+                throw new ToolSelectionException("The model returned neither a function call nor a response.");
+            }
+
+            return null;
+        }
+
+        if (calls.Length != 1)
+        {
+            throw new ToolSelectionException("Only one finance function may be called per turn.");
+        }
+
+        FunctionCallContent call = calls[0];
+        AIFunctionDeclaration tool = ToolDeclarations
+            .SingleOrDefault(tool => string.Equals(tool.Name, call.Name, StringComparison.Ordinal))
+            ?? throw new ToolSelectionException("The model selected an unknown function.");
+
+        if (call.InformationalOnly || call.Exception is not null || string.IsNullOrWhiteSpace(call.CallId))
+        {
+            throw new ToolSelectionException("The model returned a malformed function call.");
+        }
+
+        JsonElement properties = tool.JsonSchema.GetProperty("properties");
+        if (call.Arguments is not null)
+        {
+            foreach ((string name, object? value) in call.Arguments)
+            {
+                if (!properties.TryGetProperty(name, out JsonElement schema))
+                {
+                    throw new ToolSelectionException("The function call contains an unknown argument.");
+                }
+
+                bool isNull = value is null || value is JsonElement { ValueKind: JsonValueKind.Null };
+                JsonElement type = schema.GetProperty("type");
+                bool allowsNull = type.ValueKind == JsonValueKind.Array
+                    && type.EnumerateArray().Any(item => item.GetString() == "null");
+
+                if (isNull ? !allowsNull : value is not string
+                    && value is not JsonElement { ValueKind: JsonValueKind.String })
+                {
+                    throw new ToolSelectionException("A function argument has an invalid type.");
+                }
+            }
+        }
+
+        if (tool.JsonSchema.TryGetProperty("required", out JsonElement required))
+        {
+            foreach (JsonElement parameter in required.EnumerateArray())
+            {
+                if (call.Arguments is null || !call.Arguments.ContainsKey(parameter.GetString()!))
+                {
+                    throw new ToolSelectionException("The function call is missing a required argument.");
+                }
+            }
+        }
+
+        return call;
+    }
+
+    private Dictionary<Type, Func<object>> CreateToolFactories(
         IDownstreamTokenProvider tokenProvider,
-        OrchestratorSessionState state,
+        OrchestratorSessionState state)
+    {
+        // Factories are local to this turn; only the selected tool and its client are created.
+        return new()
+        {
+            [typeof(KpiInfoTool)] = () => new KpiInfoTool(
+                _clientFactory, tokenProvider, state, _options,
+                _loggerFactory.CreateLogger<KpiInfoTool>()),
+            [typeof(StatementTool)] = () => new StatementTool(
+                _statementQueryFactory.Create(tokenProvider), state,
+                DateOnly.FromDateTime(_timeProvider.GetUtcNow().UtcDateTime),
+                _loggerFactory.CreateLogger<StatementTool>()),
+            [typeof(ExploreFinanceTool)] = () => new ExploreFinanceTool(
+                _dataAgentFactory.Create(tokenProvider), _fabricOptions,
+                _loggerFactory.CreateLogger<ExploreFinanceTool>())
+        };
+    }
+
+    internal static async Task<string> InvokeToolAsync(
+        FunctionCallContent call,
+        IReadOnlyDictionary<Type, Func<object>> toolFactories,
         CancellationToken cancellationToken)
     {
-        var passthrough = new ToolPassthrough();
-        var kpiTool = new KpiInfoTool(
-            _clientFactory,
-            tokenProvider,
-            state,
-            passthrough,
-            _options,
-            _loggerFactory.CreateLogger<KpiInfoTool>());
+        cancellationToken.ThrowIfCancellationRequested();
+        MethodInfo method = DiscoverToolMethods([.. toolFactories.Keys])
+            .SingleOrDefault(method => method.GetCustomAttribute<OrchestratorToolAttribute>()!.Name == call.Name)
+            ?? throw new ToolSelectionException("The selected function has no registered implementation.");
 
-        // Constructed per call because every Fabric surface needs the caller's own delegated
-        // token. An app-only token would bypass row-level security and show every user the
-        // same data.
-        var statementTool = new StatementTool(
-            _statementQueryFactory.Create(tokenProvider),
-            state,
-            passthrough,
-            DateOnly.FromDateTime(_timeProvider.GetUtcNow().UtcDateTime),
-            _loggerFactory.CreateLogger<StatementTool>());
-
-        var exploreTool = new ExploreFinanceTool(
-            _dataAgentFactory.Create(tokenProvider),
-            state,
-            passthrough,
-            _fabricOptions,
-            _loggerFactory.CreateLogger<ExploreFinanceTool>());
-
-        switch (route.Tool?.Trim().ToLowerInvariant())
+        object target = toolFactories[method.DeclaringType!]();
+        AIFunction function = AIFunctionFactory.Create(method, target, new AIFunctionFactoryOptions
         {
-            case OrchestratorRoute.KpiInfoTool:
-                return await kpiTool.GetKpiInfoAsync(
-                    route.Kpi ?? string.Empty, cancellationToken);
+            Name = call.Name,
+            // Return the method's string itself, not the SDK's default JSON-serialized result.
+            MarshalResult = (result, _, _) => ValueTask.FromResult(result)
+        });
+        object? result = await function.InvokeAsync(
+            new AIFunctionArguments(call.Arguments ?? new Dictionary<string, object?>()), cancellationToken);
 
-            case OrchestratorRoute.StatementTool:
-                return await statementTool.GetStatementAsync(
-                    route.Kpi,
-                    route.Org ?? string.Empty,
-                    route.DateRange ?? string.Empty,
-                    cancellationToken);
-
-            case OrchestratorRoute.ExploreFinanceTool:
-                return await exploreTool.ExploreFinanceAsync(
-                    route.Question ?? string.Empty, cancellationToken);
-
-            case OrchestratorRoute.NoTool:
-                return string.IsNullOrWhiteSpace(route.Message)
-                    ? "I can explain a KPI, report a figure for an organization and period, or "
-                      + "analyse a finance question."
-                    : route.Message;
-
-            default:
-                _logger.LogError(
-                    "Router returned unsupported route {Tool}.", route.Tool);
-                return "I could not determine which data source should answer that request.";
-        }
+        return result is string answer
+            ? answer
+            : throw new InvalidOperationException($"Tool '{call.Name}' did not return a text response.");
     }
 
     private async Task<AgentSession> LoadSessionAsync(
         AIAgent agent, OrchestratorSessionState state, CancellationToken cancellationToken)
     {
+        if (state.AgentSessionVersion != NativeSessionVersion)
+        {
+            // Old structured routing may hold a server conversation handle. Start native
+            // history locally, but retain the caller's sticky KPI and subagent conversation.
+            if (!string.IsNullOrWhiteSpace(state.AgentSessionJson))
+            {
+                _logger.LogInformation("Starting local native history for an older session.");
+            }
+            state.AgentSessionJson = null;
+            state.AgentSessionVersion = NativeSessionVersion;
+        }
+
         if (string.IsNullOrWhiteSpace(state.AgentSessionJson))
         {
             return await agent.CreateSessionAsync(cancellationToken);
@@ -287,3 +468,5 @@ public sealed class OrchestratorAgent
         }
     }
 }
+
+internal sealed class ToolSelectionException(string message) : Exception(message);

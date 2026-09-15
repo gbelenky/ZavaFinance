@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 
-using System.Reflection;
+using System.Text.Json;
+using Microsoft.Extensions.AI;
 using ZavaFinance.Core.Agent;
-using ZavaFinance.Core.Tools;
 using Xunit;
 
 namespace ZavaFinance.Tests.Routing;
@@ -15,10 +15,10 @@ public sealed class GoldenSetIntegrityTests
 {
     private static readonly string[] KnownTools =
     [
-        OrchestratorRoute.KpiInfoTool,
-        OrchestratorRoute.StatementTool,
-        OrchestratorRoute.ExploreFinanceTool,
-        OrchestratorRoute.NoTool
+        FinanceToolNames.KpiInfoTool,
+        FinanceToolNames.StatementTool,
+        FinanceToolNames.ExploreFinanceTool,
+        FinanceToolNames.NoTool
     ];
 
     [Fact]
@@ -94,21 +94,21 @@ public sealed class GoldenSetIntegrityTests
     {
         foreach (RoutingCase testCase in RoutingGoldenSet.Cases)
         {
-            if (testCase.ExpectedTool == OrchestratorRoute.NoTool)
+            if (testCase.ExpectedTool == FinanceToolNames.NoTool)
             {
                 Assert.Null(testCase.KpiContains);
                 Assert.Null(testCase.OrgContains);
                 Assert.Empty(testCase.DateRangeContains);
             }
 
-            if (testCase.ExpectedTool == OrchestratorRoute.KpiInfoTool)
+            if (testCase.ExpectedTool == FinanceToolNames.KpiInfoTool)
             {
                 // get_kpi_info takes only a KPI name; asserting an org would be meaningless.
                 Assert.Null(testCase.OrgContains);
                 Assert.Empty(testCase.DateRangeContains);
             }
 
-            if (testCase.ExpectedTool == OrchestratorRoute.ExploreFinanceTool)
+            if (testCase.ExpectedTool == FinanceToolNames.ExploreFinanceTool)
             {
                 // explore_finance takes only a free-text question.
                 Assert.Null(testCase.KpiContains);
@@ -125,29 +125,29 @@ public sealed class GoldenSetIntegrityTests
         // prompt, routing silently degrades to 'none' for every turn.
         string prompt = OrchestratorAgent.SystemInstructions;
 
-        Assert.Contains(OrchestratorRoute.KpiInfoTool, prompt, StringComparison.Ordinal);
-        Assert.Contains(OrchestratorRoute.StatementTool, prompt, StringComparison.Ordinal);
-        Assert.Contains(OrchestratorRoute.NoTool, prompt, StringComparison.Ordinal);
+        Assert.Contains(FinanceToolNames.KpiInfoTool, prompt, StringComparison.Ordinal);
+        Assert.Contains(FinanceToolNames.StatementTool, prompt, StringComparison.Ordinal);
+        Assert.Contains(FinanceToolNames.NoTool, prompt, StringComparison.Ordinal);
     }
 
     [Fact]
     public void ToolMethodsCarryDescriptionsForEveryRoutedArgument()
     {
         // The [Description] attributes are the source of truth for how the model tells the
-        // tools apart, so this walks whatever the catalog discovered rather than a hard-coded
+        // tools apart, so this walks the agent's declarations rather than a hard-coded
         // list that would silently stop covering a newly added tool.
-        Assert.NotEmpty(OrchestratorToolCatalog.Tools);
+        Assert.NotEmpty(OrchestratorAgent.ToolDeclarations);
 
-        foreach (OrchestratorToolDescriptor tool in OrchestratorToolCatalog.Tools)
+        foreach (AIFunctionDeclaration tool in OrchestratorAgent.ToolDeclarations)
         {
             Assert.False(
                 string.IsNullOrWhiteSpace(tool.Description),
                 $"Tool '{tool.Name}' has no description.");
 
-            foreach (OrchestratorToolParameter parameter in tool.Parameters)
+            foreach (JsonProperty parameter in tool.JsonSchema.GetProperty("properties").EnumerateObject())
             {
                 Assert.False(
-                    string.IsNullOrWhiteSpace(parameter.Description),
+                    string.IsNullOrWhiteSpace(parameter.Value.GetProperty("description").GetString()),
                     $"Parameter '{parameter.Name}' of '{tool.Name}' has no description.");
             }
         }

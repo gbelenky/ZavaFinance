@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 
 using System.Net;
+using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
-using ZavaFinance.Core.Agent;
 using ZavaFinance.Core.Configuration;
 using ZavaFinance.Core.Finance;
 using ZavaFinance.Core.Tools;
@@ -10,119 +10,209 @@ using Xunit;
 
 namespace ZavaFinance.Tests.Finance;
 
-/// <summary>
-/// Failure paths for <see cref="ExploreFinanceTool"/>.
-/// <para>
-/// Every tool needs a graceful failure path, but a graceful message that misdescribes the fault
-/// is its own defect: it sends the user, and whoever they escalate to, looking for the wrong
-/// problem. These tests pin the distinction that matters operationally — the agent was
-/// unreachable, versus the agent was reached and refused.
-/// </para>
-/// </summary>
 public sealed class ExploreFinanceToolTests
 {
-    /// <summary>
-    /// Fabric answers 429 CapacityLimitExceeded when the capacity backing the workspace is
-    /// throttled. Observed in production on an F2 capacity, and reported to the user as
-    /// "I could not reach the finance data agent" — which is wrong twice over: the request was
-    /// delivered, and the fix is to wait or scale rather than to investigate connectivity.
-    /// </summary>
     [Fact]
     public async Task CapacityThrottlingIsReportedAsBusyRatherThanUnreachable()
     {
-        string answer = await RunWithAsync(
-            new HttpResponseMessage(HttpStatusCode.TooManyRequests)
-            {
-                Content = new StringContent(FabricDataAgentClientTests.CapacityLimitBody)
-            });
+        using var handler = FailToolCall(HttpStatusCode.TooManyRequests);
+
+        string answer = await RunWithAsync(handler);
 
         Assert.Contains("busy", answer, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("capacity", answer, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("could not reach", answer, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(handler.Requests, request => request.Method == "tools/call");
+        AssertValidHandshake(handler);
     }
 
-    /// <summary>
-    /// A genuine transport failure keeps the original message, so the two causes stay
-    /// distinguishable from the user's side.
-    /// </summary>
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable, 2)]
+    [InlineData(HttpStatusCode.Forbidden, 1)]
+    [InlineData(HttpStatusCode.Unauthorized, 1)]
+    public async Task OtherFailuresStillReportUnreachable(HttpStatusCode status, int attempts)
+    {
+        using var handler = FailToolCall(status);
+
+        string answer = await RunWithAsync(handler);
+
+        Assert.Equal("I could not reach the finance data agent for that analysis.", answer);
+        Assert.Equal(attempts, handler.Requests.Count(request => request.Method == "tools/call"));
+        AssertValidHandshake(handler);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProtocolFailuresReturnAGracefulMessageRatherThanErrorContent(bool sse)
+    {
+        using var handler = new FabricMcpHandler
+        {
+            Sse = sse,
+            BeforeReply = (request, _) => Task.FromResult<HttpResponseMessage?>(
+                request.Method == "tools/call"
+                    ? FabricMcpHandler.Reply(request,
+                        """{"code":-32000,"message":"internal service detail"}""", sse, error: true)
+                    : null)
+        };
+
+        string answer = await RunWithAsync(handler);
+
+        Assert.Equal("I could not reach the finance data agent for that analysis.", answer);
+        Assert.DoesNotContain("internal service detail", answer);
+        Assert.Single(handler.Requests, request => request.Method == "tools/call");
+        AssertValidHandshake(handler);
+    }
+
     [Fact]
-    public async Task OtherFailuresStillReportUnreachable()
+    public async Task ToolErrorsReturnAGracefulMessageRatherThanErrorContent()
     {
-        string answer = await RunWithAsync(
-            new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        using var handler = new FabricMcpHandler
+        {
+            CallResult = """{"isError":true,"content":[{"type":"text","text":"internal service detail"}]}"""
+        };
 
-        Assert.Contains("could not reach", answer, StringComparison.OrdinalIgnoreCase);
+        string answer = await RunWithAsync(handler);
+
+        Assert.Equal("I could not reach the finance data agent for that analysis.", answer);
+        Assert.Single(handler.Requests, request => request.Method == "tools/call");
     }
 
-    /// <summary>
-    /// The tool never throws: an unhandled exception inside the durable continuation is silence
-    /// in Teams, which is the one outcome a user cannot act on.
-    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReturnsTheDownstreamAnswerWithAttributionWithoutParaphrasing(bool sse)
+    {
+        const string Answer = "  Margin fell by 2.4 pp.\r\n\r\n| Driver | Impact |\n| Cost | -€12 |";
+        using var handler = new FabricMcpHandler { Sse = sse, Answer = Answer };
+
+        string answer = await RunWithAsync(handler);
+
+        Assert.Equal($"{Answer}\n\n_Source: Zava finance data agent (Microsoft Fabric)._", answer);
+        Assert.Single(handler.Requests, request => request.Method == "tools/call");
+        AssertValidHandshake(handler);
+    }
+
     [Fact]
-    public async Task NeverThrows()
+    public async Task AlreadyAttributedAnswerIsReturnedVerbatim()
     {
-        string answer = await RunWithAsync(
-            new HttpResponseMessage(HttpStatusCode.Forbidden));
+        const string Answer = "  Analysis.\r\n_Source: Published report._\r\n  ";
+        using var handler = new FabricMcpHandler { Answer = Answer };
 
-        Assert.False(string.IsNullOrWhiteSpace(answer));
+        Assert.Equal(Answer, await RunWithAsync(handler));
     }
 
-    private static async Task<string> RunWithAsync(HttpResponseMessage failure)
+    [Theory]
+    [InlineData("")]
+    [InlineData(" \r\n\t")]
+    public async Task EmptyAnswersReturnAnExplicitFallback(string answer)
     {
-        // The initialize and tools/list calls succeed so the failure lands on the tools/call
-        // step, which is where a real capacity rejection occurs.
-        var handler = new SequenceHandler(
-            [
-                new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(
-                        """{"result":{"protocolVersion":"2025-06-18"},"id":1,"jsonrpc":"2.0"}""")
-                },
-                new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(
-                        """{"result":{"tools":[{"name":"DataAgent","inputSchema":{"properties":{"userQuestion":{"type":"string"}}}}]},"id":2,"jsonrpc":"2.0"}""")
-                },
-                failure,
-                failure
-            ]);
+        using var handler = new FabricMcpHandler { Answer = answer };
 
+        Assert.Equal("The finance data agent did not return an answer for that question.",
+            await RunWithAsync(handler));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" \r\n\t")]
+    public async Task BlankQuestionsDoNotContactFabric(string question)
+    {
+        using var handler = new FabricMcpHandler();
+
+        Assert.Equal("What would you like me to analyse?", await RunWithAsync(handler, question: question));
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task MissingConfigurationDoesNotContactFabric()
+    {
+        using var handler = new FabricMcpHandler();
+
+        Assert.Equal("Open-ended finance analysis is not configured in this environment.",
+            await RunWithAsync(handler, options: new FabricOptions()));
+        Assert.Empty(handler.Requests);
+    }
+
+    [Fact]
+    public async Task CallerCancellationPropagatesRatherThanBecomingAGracefulFailure()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var handler = new FabricMcpHandler
+        {
+            BeforeReply = async (request, token) =>
+            {
+                if (request.Method == "tools/call")
+                {
+                    cancellation.Cancel();
+                    await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                }
+
+                return null;
+            }
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => RunWithAsync(handler, cancellationToken: cancellation.Token));
+
+        Assert.Single(handler.Requests, request => request.Method == "tools/call");
+    }
+
+    [Fact]
+    public async Task ExpiredTurnBudgetReturnsATimeoutMessageWithoutRetrying()
+    {
+        using var handler = new FabricMcpHandler
+        {
+            BeforeReply = async (_, token) =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                return null;
+            }
+        };
         var options = new FabricOptions
         {
             WorkspaceId = "ws",
-            DataAgentId = "agent"
+            DataAgentId = "agent",
+            DataAgentTimeout = TimeSpan.FromMilliseconds(100)
         };
 
-        var client = new FabricDataAgentClient(
-            new HttpClient(handler),
-            options,
-            _ => Task.FromResult("token"),
-            NullLogger.Instance);
+        string answer = await RunWithAsync(handler, options: options);
 
-        var passthrough = new ToolPassthrough();
-
-        var tool = new ExploreFinanceTool(
-            client,
-            new OrchestratorSessionState(),
-            passthrough,
-            options,
-            NullLogger.Instance);
-
-        return await tool.ExploreFinanceAsync("why did margin move?", CancellationToken.None);
+        Assert.Contains("did not respond in time", answer, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(handler.Requests, request => request.Method == "tools/call");
     }
 
-    private sealed class SequenceHandler(HttpResponseMessage[] responses) : HttpMessageHandler
+    private static FabricMcpHandler FailToolCall(HttpStatusCode status) => new()
     {
-        private int _calls;
+        BeforeReply = (request, _) => Task.FromResult<HttpResponseMessage?>(
+            request.Method == "tools/call"
+                ? new(status)
+                {
+                    Content = new StringContent(FabricMcpHandler.CapacityLimitBody, Encoding.UTF8, "application/json")
+                }
+                : null)
+    };
 
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            HttpResponseMessage response =
-                responses[Math.Min(_calls, responses.Length - 1)];
+    private static void AssertValidHandshake(FabricMcpHandler handler)
+    {
+        Assert.Equal(["initialize", "notifications/initialized", "tools/list"],
+            handler.Requests.Take(3).Select(request => request.Method));
+        Assert.All(handler.Requests.Where(request => request.Method != "initialize"),
+            request => Assert.Equal("session-token", request.Session));
+    }
 
-            _calls++;
-            return Task.FromResult(response);
-        }
+    private static async Task<string> RunWithAsync(
+        FabricMcpHandler handler,
+        string question = "why did margin move?",
+        FabricOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        options ??= new FabricOptions { WorkspaceId = "ws", DataAgentId = "agent" };
+        using var http = new HttpClient(handler, disposeHandler: false);
+        var client = new FabricDataAgentClient(
+            http, options, _ => Task.FromResult("token"), NullLogger.Instance);
+        var tool = new ExploreFinanceTool(client, options, NullLogger.Instance);
+
+        return await tool.ExploreFinanceAsync(question, cancellationToken);
     }
 }

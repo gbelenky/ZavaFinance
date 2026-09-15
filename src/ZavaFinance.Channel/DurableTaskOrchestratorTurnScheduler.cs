@@ -7,8 +7,7 @@ using Microsoft.Extensions.Logging;
 namespace ZavaFinance.Channel;
 
 /// <summary>
-/// Current GA durable implementation. This boundary can be replaced by a MAF Durable Extension
-/// adapter after the extension is GA and its OBO and persistence requirements are proven.
+/// Schedules channel delivery with a deterministic instance ID for each inbound activity.
 /// </summary>
 public sealed class DurableTaskOrchestratorTurnScheduler(
     DurableTaskClient client,

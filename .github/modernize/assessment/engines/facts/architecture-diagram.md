@@ -21,7 +21,7 @@ flowchart TD
     subgraph FoundryLayer["Agent Layer - Microsoft Foundry"]
         FoundryGateway["Foundry Responses Gateway"]
         AgentHost["ZavaFinance Hosted Agent"]
-        Router["Microsoft Agent Framework Router"]
+        AgentModel["Agent Model - Native Function Calling"]
         AgentState[("Foundry State Store")]
     end
     subgraph FinanceLayer["Finance Services"]
@@ -48,10 +48,11 @@ flowchart TD
     FoundryGateway -->|"forward client headers"| AgentHost
     AgentHost -->|"validate assertion"| Entra
     AgentHost -->|"load and save session"| AgentState
-    AgentHost -->|"route question"| Router
-    Router -->|"definition request"| KpiTool
-    Router -->|"structured figures"| StatementTool
-    Router -->|"open finance analysis"| ExploreTool
+    AgentHost -->|"question and native tool schemas"| AgentModel
+    AgentModel -->|"function name and arguments"| AgentHost
+    AgentHost -->|"execute definition call"| KpiTool
+    AgentHost -->|"execute statement call"| StatementTool
+    AgentHost -->|"execute analysis call"| ExploreTool
     KpiTool -->|"delegated request"| CopilotStudio
     StatementTool -->|"delegated SQL"| FabricSql
     ExploreTool -->|"delegated MCP"| FabricAgent
@@ -71,7 +72,7 @@ flowchart TD
 | Channel workflow | Durable Task Scheduler | 1.25.0 client and worker | Executes slow turns outside the Bot Service response timeout with retries |
 | Channel state | Azure Blob Storage | Microsoft.Agents.Storage.Blobs 1.8.77 | Stores pending turns, conversation references, and idempotency records |
 | Hosted agent | Microsoft Foundry hosted agent | Azure.AI.AgentServer.Responses 1.0.0-beta.8 - Preview | Exposes the Responses API handler and runs the agent container |
-| Routing | Microsoft Agent Framework | Microsoft.Agents.AI 1.21.0 - GA | Selects exactly one finance tool and extracts arguments |
+| Native function calling | Microsoft Agent Framework | Microsoft.Agents.AI 1.21.0 - GA | Model selects a tool; host validates and executes it without model answer synthesis |
 | Agent state | Foundry State Store | Platform managed | Stores per-user routing state and downstream conversation handles |
 | Identity | Microsoft Entra ID and MSAL OBO | Microsoft.Identity.Client 4.89.0 | Validates user assertions and obtains delegated downstream tokens |
 | KPI knowledge | Copilot Studio agent | Microsoft.Agents.CopilotStudio.Client 1.8.77 - GA | Returns sourced KPI definitions and calculations |
@@ -88,6 +89,7 @@ The channel uses private Blob Storage for pending turns, proactive conversation 
 - The channel and hosted agent are separate hosts so the same finance agent can serve Teams, Microsoft 365 Copilot, and direct Responses API callers.
 - The channel acknowledges quickly and completes work through Durable Task because downstream calls can exceed the Bot Service timeout.
 - Identity is fail-closed: the hosted agent validates the forwarded assertion before deriving a per-user session key or requesting delegated tokens.
+- Native function calls are executed by the host. Tool answers are returned verbatim and never fed back to the model; history records content-free result markers instead.
 
 ## Component Relationships
 
@@ -109,7 +111,6 @@ flowchart LR
         cValidator["User Assertion Validator"]
         cSessionKeys["Session Key Provider"]
         cRouter["OrchestratorAgent"]
-        cPassthrough["Tool Passthrough"]
     end
     subgraph cTools["Finance Tools"]
         cKpi["KpiInfoTool"]
@@ -117,7 +118,8 @@ flowchart LR
         cExplore["ExploreFinanceTool"]
     end
     subgraph cData["Data and Integration"]
-        cSessionStore["OrchestratorSessionStore"]
+        cAgentStore["FoundrySessionStore"]
+        cChannelStore["Channel Session and Delivery Store"]
         cHostedClient["Foundry Hosted Agent Client"]
         cCopilotFactory["Copilot Studio Client Factory"]
         cStatementQuery["FabricStatementQuery"]
@@ -126,7 +128,7 @@ flowchart LR
     end
 
     cMessages -->|"authenticated activity"| cChannel
-    cChannel -->|"save pending turn"| cSessionStore
+    cChannel -->|"pending, answer-ready, delivered"| cChannelStore
     cChannel -->|"schedule"| cScheduler
     cScheduler -->|"start instance"| cTurn
     cTurn -->|"retry activity"| cActivities
@@ -136,7 +138,7 @@ flowchart LR
     cHandler -->|"validate first"| cValidator
     cHandler -->|"derive isolation key"| cSessionKeys
     cHandler -->|"run question"| cRouter
-    cRouter -->|"load and save"| cSessionStore
+    cRouter -->|"load and save typed history"| cAgentStore
     cRouter -->|"execute definition route"| cKpi
     cRouter -->|"execute statement route"| cStatement
     cRouter -->|"execute exploration route"| cExplore
@@ -146,9 +148,9 @@ flowchart LR
     cStatementQuery -->|"request delegated token"| cTokenProvider
     cExplore -->|"ask open question"| cDataAgent
     cDataAgent -->|"request delegated token"| cTokenProvider
-    cKpi -->|"capture exact answer"| cPassthrough
-    cStatement -->|"capture exact answer"| cPassthrough
-    cExplore -->|"capture exact answer"| cPassthrough
+    cKpi -->|"return exact answer"| cRouter
+    cStatement -->|"return exact answer"| cRouter
+    cExplore -->|"return exact answer"| cRouter
 ```
 
 ### Component Inventory
@@ -162,16 +164,16 @@ flowchart LR
 | `TurnOrchestrator` | Durable workflow | Durable orchestrator | Runs the processing activity with bounded retries |
 | `OrchestratorActivities` | Durable workflow | Durable activity | Resumes the conversation, invokes slow work, delivers once, and records completion |
 | `FoundryHostedAgentClient` | Data and integration | HTTP client | Calls Foundry with workload authorization and a separate forwarded user assertion |
-| `ZavaFinanceResponseHandler` | Hosted agent | Responses API handler | Reads input, validates identity, creates OBO context, and runs the router |
+| `ZavaFinanceResponseHandler` | Hosted agent | Responses API handler | Reads input, validates identity, creates OBO context, and runs native function selection and host execution |
 | `UserAssertionValidator` | Hosted agent | Security service | Validates assertion signature, issuer, audience, lifetime, tenant, and user claims |
 | `SessionKeyProvider` | Hosted agent | Identity service | Derives the per-user, per-conversation state key |
 | `OrchestratorAgent` | Hosted agent | Routing service | Uses the model to select one route, executes it, and persists routing state |
-| `ToolPassthrough` | Hosted agent | Output adapter | Preserves sourced tool output without model rewriting |
 | `KpiInfoTool` | Finance tools | Tool | Retrieves KPI definitions from Copilot Studio |
 | `StatementTool` | Finance tools | Tool | Resolves scope and period, then calculates structured finance statements |
 | `ExploreFinanceTool` | Finance tools | Tool | Sends open-ended questions to the Fabric data agent |
-| `OrchestratorSessionStore` | Data and integration | State repository | Stores routing sessions, conversation handles, pending turns, and cached answers |
+| `FoundrySessionStore` | Hosted agent | Typed state store | Stores bounded routing history, KPI context and KPIpedia conversation handle |
+| Channel session and delivery store | Channel | State store | Stores platform conversation IDs and turn delivery lifecycle with cached answers |
 | `CopilotStudioClientFactory` | Data and integration | Client factory | Creates a delegated Copilot Studio client |
 | `FabricStatementQuery` | Data and integration | SQL repository | Executes parameterized Fabric SQL and returns additive finance components |
 | `FabricDataAgentClient` | Data and integration | MCP client | Discovers and calls the published Fabric data-agent tool |
-| `IDownstreamTokenProvider` | Data and integration | Authentication abstraction | Supplies delegated tokens in either hosting model |
+| `IDownstreamTokenProvider` | Data and integration | Authentication abstraction | Supplies caller-bound delegated tokens inside the hosted agent |

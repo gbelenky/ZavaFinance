@@ -1,9 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol;
+using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 using ZavaFinance.Core.Configuration;
 
 namespace ZavaFinance.Core.Finance;
@@ -14,22 +16,9 @@ namespace ZavaFinance.Core.Finance;
 /// Every call is made with a **delegated user token**, so the agent answers under the caller's
 /// permissions.
 /// </para>
-/// <para>
-/// This deliberately does not use the OpenAI Assistants surface
-/// (<c>/aiassistant/openai/threads</c>). OpenAI sunset the Assistants API on 26 August 2026 and
-/// Fabric's documentation now directs integrations to the MCP endpoint. The old path still
-/// accepts requests — it creates threads and runs quite happily — but every run then fails with
-/// <c>invalid_prompt: BadRequest</c> from inside the service, which reads like a broken agent
-/// rather than a removed API. The Fabric portal kept working throughout because it had already
-/// moved.
-/// </para>
 /// </summary>
 public sealed class FabricDataAgentClient
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-
-    private const string ProtocolVersion = "2025-06-18";
-
     private readonly HttpClient _httpClient;
     private readonly FabricOptions _options;
     private readonly Func<CancellationToken, Task<string>> _tokenProvider;
@@ -58,78 +47,75 @@ public sealed class FabricDataAgentClient
     /// <summary>
     /// Asks a question and returns the agent's answer.
     /// <para>
-    /// MCP calls are self-contained, so unlike the Copilot Studio subagent there is no
-    /// conversation handle to store. That removes a whole class of isolation risk: there is no
-    /// shared thread two participants could ever resume.
+    /// Each question owns a fresh MCP session and delegated headers. Neither authentication nor
+    /// session state is stored on the shared HTTP client or reused by another caller.
     /// </para>
     /// </summary>
     public async Task<string> AskAsync(string question, CancellationToken cancellationToken)
     {
         string token = await _tokenProvider(cancellationToken);
 
-        await SendAsync(
-            token,
-            new
+        await using var transport = new HttpClientTransport(new()
+        {
+            Endpoint = new Uri(Endpoint),
+            TransportMode = HttpTransportMode.StreamableHttp,
+            EnableStandaloneGetStream = false,
+            AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"Bearer {token}" }
+        }, _httpClient);
+
+        try
+        {
+            await using McpClient client = await McpClient.CreateAsync(transport, new()
             {
-                jsonrpc = "2.0",
-                id = 1,
-                method = "initialize",
-                @params = new
-                {
-                    protocolVersion = ProtocolVersion,
-                    capabilities = new { },
-                    clientInfo = new { name = "ZavaFinance", version = "1.0" }
-                }
-            },
-            cancellationToken);
+                ClientInfo = new() { Name = "ZavaFinance", Version = "1.0" },
+                // Keep Fabric's handshake rather than probing newer, sessionless MCP revisions.
+                ProtocolVersion = "2025-06-18"
+            }, cancellationToken: cancellationToken);
 
-        (string toolName, string argumentName) = await DiscoverToolAsync(token, cancellationToken);
+            (string toolName, string argumentName) = await DiscoverToolAsync(client, cancellationToken);
+            var arguments = new Dictionary<string, object?> { [argumentName] = question };
 
-        // The argument name comes from the tool's own input schema rather than being hard-coded,
-        // because it is the agent's contract and can differ per agent.
-        JsonElement call = await SendAsync(
-            token,
-            new
+            CallToolResult result;
+            try
             {
-                jsonrpc = "2.0",
-                id = 3,
-                method = "tools/call",
-                @params = new
-                {
-                    name = toolName,
-                    arguments = new Dictionary<string, string> { [argumentName] = question }
-                }
-            },
-            retryOnServerError: true,
-            cancellationToken);
+                result = await client.CallToolAsync(toolName, arguments, cancellationToken: cancellationToken);
+            }
+            catch (HttpRequestException ex)
+                when (ex.StatusCode is >= HttpStatusCode.InternalServerError
+                      && !cancellationToken.IsCancellationRequested)
+            {
+                // Preserve the single retry for Fabric's intermittent read-only query failures.
+                _logger.LogWarning(
+                    "Fabric data agent returned {Status}; retrying once.", (int)ex.StatusCode.Value);
+                result = await client.CallToolAsync(toolName, arguments, cancellationToken: cancellationToken);
+            }
 
-        return ReadAnswer(call);
+            return ReadAnswer(result);
+        }
+        catch (McpException ex)
+        {
+            throw new InvalidOperationException($"Fabric data agent returned an error: {ex.Message}", ex);
+        }
     }
 
-    private async Task<(string ToolName, string ArgumentName)> DiscoverToolAsync(
-        string token, CancellationToken cancellationToken)
+    private static async Task<(string ToolName, string ArgumentName)> DiscoverToolAsync(
+        McpClient client, CancellationToken cancellationToken)
     {
-        JsonElement list = await SendAsync(
-            token,
-            new { jsonrpc = "2.0", id = 2, method = "tools/list", @params = new { } },
-            cancellationToken);
-
-        if (!list.TryGetProperty("result", out JsonElement result)
-            || !result.TryGetProperty("tools", out JsonElement tools)
-            || tools.GetArrayLength() == 0)
+        IList<McpClientTool> tools = await client.ListToolsAsync(cancellationToken: cancellationToken);
+        if (tools.Count == 0)
         {
             throw new InvalidOperationException("Fabric data agent exposes no MCP tool.");
         }
 
-        JsonElement tool = tools[0];
-
-        string name = tool.GetProperty("name").GetString()
-            ?? throw new InvalidOperationException("Fabric data agent tool has no name.");
-
+        McpClientTool tool = tools[0];
+        if (string.IsNullOrEmpty(tool.Name))
+        {
+            throw new InvalidOperationException("Fabric data agent tool has no name.");
+        }
         string argument = "userQuestion";
 
-        if (tool.TryGetProperty("inputSchema", out JsonElement schema)
-            && schema.TryGetProperty("properties", out JsonElement properties))
+        // Preserve the published agent's argument name, which can differ between agents.
+        if (tool.JsonSchema.TryGetProperty("properties", out JsonElement properties))
         {
             foreach (JsonProperty property in properties.EnumerateObject())
             {
@@ -138,143 +124,22 @@ public sealed class FabricDataAgentClient
             }
         }
 
-        return (name, argument);
+        return (tool.Name, argument);
     }
 
-    private async Task<JsonElement> SendAsync(
-        string token, object payload, CancellationToken cancellationToken)
-        => await SendAsync(token, payload, retryOnServerError: false, cancellationToken);
-
-    private async Task<JsonElement> SendAsync(
-        string token, object payload, bool retryOnServerError, CancellationToken cancellationToken)
+    private string ReadAnswer(CallToolResult result)
     {
-        int attempt = 0;
-
-        while (true)
-        {
-            attempt++;
-
-            try
-            {
-                return await SendOnceAsync(token, payload, cancellationToken);
-            }
-            catch (HttpRequestException ex)
-                when (retryOnServerError
-                      && attempt == 1
-                      && ex.StatusCode is >= HttpStatusCode.InternalServerError
-                      && !cancellationToken.IsCancellationRequested)
-            {
-                // The Preview runtime returns an occasional 500 on long multi-step questions;
-                // the identical question then succeeds. Retrying is safe because an MCP call
-                // carries no conversation state, so a replay cannot duplicate a turn the way a
-                // Copilot Studio call would.
-                _logger.LogWarning(
-                    ex,
-                    "Fabric data agent returned {Status}; retrying once.",
-                    (int)ex.StatusCode.Value);
-            }
-        }
-    }
-
-    private async Task<JsonElement> SendOnceAsync(
-        string token, object payload, CancellationToken cancellationToken)
-    {
-        using var request = new HttpRequestMessage(HttpMethod.Post, Endpoint);
-        request.Headers.Authorization = new("Bearer", token);
-
-        // The endpoint is streamable HTTP: it may answer with JSON or with an SSE frame, and
-        // advertising only JSON is rejected.
-        request.Headers.Accept.ParseAdd("application/json");
-        request.Headers.Accept.ParseAdd("text/event-stream");
-        request.Content = JsonContent.Create(payload, options: Json);
-
-        using HttpResponseMessage response =
-            await _httpClient.SendAsync(request, cancellationToken);
-
-        string body = await response.Content.ReadAsStringAsync(cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-        {
-            _logger.LogWarning(
-                "Fabric data agent MCP call failed with {Status}. {Detail}",
-                (int)response.StatusCode,
-                body);
-
-            response.EnsureSuccessStatusCode();
-        }
-
-        JsonElement message = ParseMessage(body);
-
-        if (message.TryGetProperty("error", out JsonElement error))
-        {
-            string detail = error.TryGetProperty("message", out JsonElement m)
-                ? m.GetString() ?? "unknown"
-                : "unknown";
-
-            throw new InvalidOperationException($"Fabric data agent returned an error: {detail}");
-        }
-
-        return message;
-    }
-
-    /// <summary>
-    /// Reads either a plain JSON-RPC body or a single SSE frame, since the endpoint may use
-    /// either depending on how the answer is produced.
-    /// </summary>
-    internal static JsonElement ParseMessage(string body)
-    {
-        string payload = body.TrimStart();
-
-        if (!payload.StartsWith('{'))
-        {
-            foreach (string line in body.Split('\n'))
-            {
-                if (line.StartsWith("data:", StringComparison.Ordinal))
-                {
-                    payload = line["data:".Length..].Trim();
-                    break;
-                }
-            }
-        }
-
-        return JsonDocument.Parse(payload).RootElement.Clone();
-    }
-
-    private string ReadAnswer(JsonElement message)
-    {
-        if (!message.TryGetProperty("result", out JsonElement result))
-        {
-            return string.Empty;
-        }
-
-        if (result.TryGetProperty("isError", out JsonElement isError)
-            && isError.ValueKind == JsonValueKind.True)
+        if (result.IsError == true)
         {
             throw new InvalidOperationException("Fabric data agent reported a tool error.");
         }
 
-        if (!result.TryGetProperty("content", out JsonElement content))
-        {
-            return string.Empty;
-        }
-
-        var parts = new List<string>();
-
-        foreach (JsonElement part in content.EnumerateArray())
-        {
-            if (part.TryGetProperty("type", out JsonElement type)
-                && type.GetString() == "text"
-                && part.TryGetProperty("text", out JsonElement text))
-            {
-                parts.Add(text.GetString() ?? string.Empty);
-            }
-        }
-
-        string answer = string.Join("\n", parts).Trim();
+        string[] parts = result.Content.OfType<TextContentBlock>().Select(part => part.Text).ToArray();
+        string answer = string.Join("\n", parts);
 
         // Shape only, never content: the answer is permissioned user data.
         _logger.LogInformation(
-            "Fabric data agent replied. Parts={Parts} Length={Length}", parts.Count, answer.Length);
+            "Fabric data agent replied. Parts={Parts} Length={Length}", parts.Length, answer.Length);
 
         return answer;
     }

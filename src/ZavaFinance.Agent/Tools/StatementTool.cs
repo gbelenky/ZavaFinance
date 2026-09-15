@@ -12,51 +12,45 @@ namespace ZavaFinance.Core.Tools;
 /// <summary>
 /// Statement tool. Backed by a parameterised query against the Fabric lakehouse SQL analytics
 /// endpoint, executed as the signed-in user.
-/// <para>
-/// Deliberately fast and synchronous: unlike the natural-language subagents this returns well
-/// inside the channel turn budget, so it does not belong on the durable
-/// acknowledge-then-answer path.
-/// </para>
 /// </summary>
 public sealed class StatementTool
 {
-    private readonly IStatementQuery _query;
+    private readonly IStatementQuery? _query;
     private readonly OrchestratorSessionState _state;
-    private readonly ToolPassthrough _passthrough;
     private readonly DateOnly _today;
     private readonly ILogger _logger;
 
     public StatementTool(
-        IStatementQuery query,
+        IStatementQuery? query,
         OrchestratorSessionState state,
-        ToolPassthrough passthrough,
         DateOnly today,
         ILogger logger)
     {
         _query = query;
         _state = state;
-        _passthrough = passthrough;
         _today = today;
         _logger = logger;
     }
 
-    [OrchestratorTool(OrchestratorRoute.StatementTool)]
+    [OrchestratorTool(FinanceToolNames.StatementTool)]
     [Description(
         "Return the actual figure for one specific KPI, organization and period from the Zava "
         + "finance lakehouse. Use this when the user asks for figures, numbers, a report or a "
         + "statement, including retrieval phrasing such as 'show me', 'give me' or 'how much' "
-        + "applied to a KPI. A missing organization or date range does not disqualify this "
+        + "applied to a KPI. Asking how one KPI is doing in one organization and period is "
+        + "also a figure lookup, unless the user requests an explanation, trend or comparison. "
+        + "A missing organization or date range does not disqualify this "
         + "tool: it asks for whatever it still needs. Do NOT use this to explain what a KPI "
         + "means, and do NOT use it for open-ended analysis such as 'why did margin fall' or "
         + "questions that rank or compare many things at once.")]
     public async Task<string> GetStatementAsync(
         [Description("KPI name. Omit to reuse the KPI most recently explained.")]
-        string? kpi,
+        string? kpi = null,
         [Description("Organization or business unit, e.g. 'Nordics', 'EMEA' or 'Marketing'.")]
-        string org,
+        string org = "",
         [Description("Date range, e.g. 'Q3 2026', 'November 2025' or 'January to March 2026'.")]
-        string dateRange,
-        CancellationToken cancellationToken)
+        string dateRange = "",
+        CancellationToken cancellationToken = default)
     {
         // Falls back to the session's most recent KPI so follow-ups like "now show me the
         // numbers for Nordics" work without restating it.
@@ -66,17 +60,15 @@ public sealed class StatementTool
 
         if (definition is null)
         {
-            return Passthrough(
-                string.IsNullOrWhiteSpace(effectiveKpiText)
-                    ? "Which KPI would you like a statement for?"
-                    : $"I do not recognise '{effectiveKpiText}' as a KPI I can report on.");
+            return string.IsNullOrWhiteSpace(effectiveKpiText)
+                ? "Which KPI would you like a statement for?"
+                : $"I do not recognise '{effectiveKpiText}' as a KPI I can report on.";
         }
 
         if (string.IsNullOrWhiteSpace(org))
         {
-            return Passthrough(
-                $"Which organization should I report {definition.Name} for? "
-                + "You can name a region such as EMEA, a department, or the whole company.");
+            return $"Which organization should I report {definition.Name} for? "
+                + "You can name a region such as EMEA, a department, or the whole company.";
         }
 
         // Never default a missing period: a statement for a period the user did not ask for is
@@ -85,11 +77,16 @@ public sealed class StatementTool
 
         if (period is null)
         {
-            return Passthrough(
-                string.IsNullOrWhiteSpace(dateRange)
-                    ? $"Which period should I report {definition.Name} for, for example 'Q3 2026'?"
-                    : $"I could not interpret '{dateRange}' as a period. Try 'Q3 2026', "
-                      + "'November 2025' or 'January to March 2026'.");
+            return string.IsNullOrWhiteSpace(dateRange)
+                ? $"Which period should I report {definition.Name} for, for example 'Q3 2026'?"
+                : $"I could not interpret '{dateRange}' as a period. Try 'Q3 2026', "
+                  + "'November 2025' or 'January to March 2026'.";
+        }
+
+        if (_query is null)
+        {
+            _logger.LogWarning("get_statement requested but Fabric SQL is not configured.");
+            return "The finance warehouse is not configured in this environment.";
         }
 
         try
@@ -99,42 +96,31 @@ public sealed class StatementTool
 
             if (scope is null)
             {
-                return Passthrough(
-                    $"I could not find an organization called '{org}'. Zava reports by region "
-                    + "(AMER, EMEA, APAC, LATAM) and by department.");
+                return $"I could not find an organization called '{org}'. Zava reports by region "
+                    + "(AMER, EMEA, APAC, LATAM) and by department.";
             }
 
             StatementResult result =
                 await _query.GetStatementAsync(definition, scope, period, cancellationToken);
 
             _state.LastKpiName = definition.Name;
-            _state.LastSubagent = OrchestratorRoute.StatementTool;
 
             // Figures must reach the user exactly as computed. A model paraphrase of a
             // statement is a wrong number waiting to happen.
-            return Passthrough(Render(result));
+            return Render(result);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning("get_statement timed out.");
 
-            return Passthrough(
-                $"The finance warehouse did not respond in time for {definition.Name}.");
+            return $"The finance warehouse did not respond in time for {definition.Name}.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "get_statement failed.");
 
-            return Passthrough(
-                $"I could not retrieve {definition.Name} from the finance warehouse.");
+            return $"I could not retrieve {definition.Name} from the finance warehouse.";
         }
-    }
-
-    private string Passthrough(string answer)
-    {
-        _passthrough.Capture(answer);
-
-        return answer;
     }
 
     internal static string Render(StatementResult result)

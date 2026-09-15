@@ -9,18 +9,13 @@
     <RootNamespace>ZavaFinance.Agent</RootNamespace>
     <AssemblyName>ZavaFinance.Agent</AssemblyName>
     <UserSecretsId>b14a3738-069b-4e3d-b050-bc42dd84afe4</UserSecretsId>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Identity\bin\**;Identity\obj\**</DefaultItemExcludes>
   </PropertyGroup>
 
-  <!--
-    The routing agent, the three tools and the finance logic live in this project rather than in
-    a separate library, because the hosted-agent code deploy uploads a single project directory:
-    a project reference is silently dropped and the remote build fails on every shared type.
-
-    The namespaces stay ZavaFinance.Core.* so the separation remains visible in the source tree,
-    and ZavaFinance.Channel references this project to reuse exactly the same routing agent and
-    tools. One copy of the code, one golden set, two hosts.
-  -->
+  <!-- Keep the shared identity project within the single-directory hosted-agent upload. -->
   <ItemGroup>
+    <Compile Remove="Identity\**\*.cs" />
+    <ProjectReference Include="Identity\ZavaFinance.Identity.csproj" />
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>ZavaFinance.Tests</_Parameter1>
     </AssemblyAttribute>
@@ -40,9 +35,9 @@
   -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Agents.AI" Version="1.21.0" />
+    <PackageReference Include="ModelContextProtocol.Core" Version="2.2.0" />
     <PackageReference Include="Microsoft.Agents.AI.Foundry" Version="1.5.0" />
     <PackageReference Include="Microsoft.Agents.CopilotStudio.Client" Version="1.8.77" />
-    <PackageReference Include="Microsoft.Agents.Storage" Version="1.8.77" />
     <PackageReference Include="Azure.AI.Projects" Version="2.0.1" />
     <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.4" />

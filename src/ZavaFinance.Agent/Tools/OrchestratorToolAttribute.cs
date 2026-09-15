@@ -3,12 +3,11 @@
 namespace ZavaFinance.Core.Tools;
 
 /// <summary>
-/// Marks a method as an orchestrator tool and fixes the name the model uses to select it.
+/// Marks a method as a native function tool and fixes its public tool name.
 /// <para>
-/// The model does not invoke these methods. The durable routing agent returns a
-/// <see cref="Agent.OrchestratorRoute"/> naming one of them, and the channel host executes it
-/// afterwards inside the M365 continuation, where the caller's turn context can perform OBO.
-/// The attribute exists so the routing prompt and the executable tool cannot drift apart.
+/// The agent discovers annotated public instance methods on its registered tool classes
+/// and generates native function declarations from them. Execution remains in
+/// the hosted agent, using the caller's delegated identity, with no answer-synthesis model pass.
 /// </para>
 /// </summary>
 [AttributeUsage(AttributeTargets.Method)]

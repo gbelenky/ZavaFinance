@@ -18,5 +18,5 @@ internal static class ThisAssembly
     /// Bump when a deploy must be forced. The value participates in the package content, so
     /// changing it guarantees a new agent version.
     /// </summary>
-    public const string BuildMarker = "2026-09-14.9-source-attribution";
+    public const string BuildMarker = "2026-09-15.2-native-routing";
 }

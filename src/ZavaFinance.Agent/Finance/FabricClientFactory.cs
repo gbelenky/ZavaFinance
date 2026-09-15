@@ -9,7 +9,8 @@ namespace ZavaFinance.Core.Finance;
 /// <summary>Builds a statement query bound to one caller.</summary>
 public interface IStatementQueryFactory
 {
-    IStatementQuery Create(IDownstreamTokenProvider tokenProvider);
+    /// <returns>A caller-bound query, or null when SQL is not configured.</returns>
+    IStatementQuery? Create(IDownstreamTokenProvider tokenProvider);
 }
 
 /// <summary>Builds a data agent client bound to one caller.</summary>
@@ -42,15 +43,13 @@ public sealed class FabricClientFactory : IStatementQueryFactory, IFabricDataAge
         _loggerFactory = loggerFactory;
     }
 
-    public IStatementQuery Create(IDownstreamTokenProvider tokenProvider)
+    public IStatementQuery? Create(IDownstreamTokenProvider tokenProvider)
     {
         ArgumentNullException.ThrowIfNull(tokenProvider);
 
         if (!_options.IsSqlConfigured)
         {
-            // Keeps local development and unconfigured environments answering rather than
-            // failing the turn with a connection error the user cannot act on.
-            return new UnavailableStatementQuery();
+            return null;
         }
 
         return new FabricStatementQuery(
@@ -70,22 +69,4 @@ public sealed class FabricClientFactory : IStatementQueryFactory, IFabricDataAge
             ct => tokenProvider.GetTokenAsync(FabricOptions.DataAgentScopes, ct),
             _loggerFactory.CreateLogger<FabricDataAgentClient>());
     }
-}
-
-/// <summary>
-/// Stand-in used when the lakehouse is not configured. It reports the gap instead of throwing,
-/// because every tool needs a graceful failure path.
-/// </summary>
-internal sealed class UnavailableStatementQuery : IStatementQuery
-{
-    public Task<OrganizationScope?> ResolveOrganizationAsync(
-        string org, CancellationToken cancellationToken) =>
-        Task.FromResult<OrganizationScope?>(new OrganizationScope("unconfigured", org, org));
-
-    public Task<StatementResult> GetStatementAsync(
-        KpiDefinition kpi,
-        OrganizationScope organization,
-        FinancePeriod period,
-        CancellationToken cancellationToken) =>
-        Task.FromResult(new StatementResult(kpi, organization, period, null, null, "USD"));
 }

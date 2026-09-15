@@ -1,6 +1,5 @@
 // Copyright (c) Microsoft Corporation.
 
-using System.Net;
 using System.Security.Claims;
 using Microsoft.Agents.Builder;
 using Microsoft.Agents.Core.Models;
@@ -10,7 +9,6 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
-using ZavaFinance.Core.Agent;
 
 namespace ZavaFinance.Channel;
 

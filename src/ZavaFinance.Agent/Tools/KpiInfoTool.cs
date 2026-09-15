@@ -21,7 +21,6 @@ public sealed class KpiInfoTool
     private readonly ICopilotStudioClientFactory _clientFactory;
     private readonly IDownstreamTokenProvider _tokenProvider;
     private readonly OrchestratorSessionState _state;
-    private readonly ToolPassthrough _passthrough;
     private readonly OrchestratorOptions _options;
     private readonly ILogger _logger;
 
@@ -29,19 +28,17 @@ public sealed class KpiInfoTool
         ICopilotStudioClientFactory clientFactory,
         IDownstreamTokenProvider tokenProvider,
         OrchestratorSessionState state,
-        ToolPassthrough passthrough,
         OrchestratorOptions options,
         ILogger logger)
     {
         _clientFactory = clientFactory;
         _tokenProvider = tokenProvider;
         _state = state;
-        _passthrough = passthrough;
         _options = options;
         _logger = logger;
     }
 
-    [OrchestratorTool(OrchestratorRoute.KpiInfoTool)]
+    [OrchestratorTool(FinanceToolNames.KpiInfoTool)]
     [Description(
         "Look up the official definition, meaning, formula or business description of a "
         + "KPI from the KPIpedia knowledge base. Use this only when the user asks what a KPI "
@@ -56,7 +53,7 @@ public sealed class KpiInfoTool
 
         if (string.IsNullOrWhiteSpace(kpiName))
         {
-            return Passthrough("I need a KPI name to look up.");
+            return "I need a KPI name to look up.";
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -77,38 +74,28 @@ public sealed class KpiInfoTool
             {
                 // Recorded per user, per conversation — never in a static or singleton.
                 _state.LastKpiName = kpiName;
-                _state.LastSubagent = "get_kpi_info";
             }
 
             // The subagent's answer is sourced and carries citations. It is delivered to the
             // user exactly as received, never re-emitted through the model. The attribution is
             // appended after it, naming the system the citations come from.
-            return Passthrough(
-                string.IsNullOrWhiteSpace(answer)
-                    ? $"KPIpedia returned no description for '{kpiName}'."
-                    : SourceFooter.Append(answer, SourceFooter.KnowledgeBase));
+            return string.IsNullOrWhiteSpace(answer)
+                ? $"KPIpedia returned no description for '{kpiName}'."
+                : SourceFooter.Append(answer, SourceFooter.KnowledgeBase);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning("get_kpi_info timed out after {Timeout}.", _options.SubagentTimeout);
 
             // A timeout must never surface as silence in Teams.
-            return Passthrough(
-                $"KPIpedia did not respond in time for '{kpiName}'. Please try again.");
+            return $"KPIpedia did not respond in time for '{kpiName}'. Please try again.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "get_kpi_info failed.");
 
-            return Passthrough($"I could not reach KPIpedia to look up '{kpiName}'.");
+            return $"I could not reach KPIpedia to look up '{kpiName}'.";
         }
-    }
-
-    private string Passthrough(string answer)
-    {
-        _passthrough.Capture(answer);
-
-        return answer;
     }
 
     private static string BuildQuestion(string kpiName)

@@ -4,7 +4,6 @@ using Azure.AI.AgentServer.Responses;
 using Azure.AI.Projects;
 using Azure.Identity;
 using Microsoft.Agents.AI;
-using Microsoft.Agents.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -101,12 +100,11 @@ ResponsesServer.Run<ZavaFinanceResponseHandler>(configure: builder =>
     // derives itself. That removes the customer storage account entirely — tenant policy forces
     // storage accounts to private-only, which a Foundry-managed container cannot reach without a
     // VNet-injected project, private endpoints and private DNS.
-    builder.Services.AddSingleton<IStorage>(_ => new FoundryStateStorage(
+    builder.Services.AddSingleton<IAgentSessionStore>(_ => new FoundrySessionStore(
         storeName: "zavafinance-sessions",
         credential,
         itemTtl: orchestratorOptions.SessionTimeToLive));
 
-    builder.Services.AddSingleton<OrchestratorSessionStore>();
     builder.Services.AddSingleton<ICopilotStudioClientFactory, CopilotStudioClientFactory>();
     builder.Services.AddSingleton<FabricClientFactory>();
     builder.Services.AddSingleton<IStatementQueryFactory>(
@@ -114,8 +112,7 @@ ResponsesServer.Run<ZavaFinanceResponseHandler>(configure: builder =>
     builder.Services.AddSingleton<IFabricDataAgentClientFactory>(
         sp => sp.GetRequiredService<FabricClientFactory>());
 
-    // One factory builds the routing agent for both hosts and for the golden-set eval, so all
-    // three measure the same configuration.
+    // Hosted execution and the golden-set evaluation share one routing definition.
     builder.Services.AddSingleton<AIAgent>(_ =>
     {
         var projectClient = new AIProjectClient(

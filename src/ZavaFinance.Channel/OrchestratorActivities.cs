@@ -1,20 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Agents.Builder;
 using Microsoft.Agents.Builder.App.Proactive;
 using Microsoft.Agents.Core.Models;
-using Microsoft.Agents.Storage;
-using Microsoft.DurableTask;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 
 namespace ZavaFinance.Channel;
 
 /// <summary>
-/// Activities are the only place real work happens. They execute <b>at least once</b>, so
-/// every side effect here is made idempotent by a deterministic key.
+/// Executes at least once. The channel delivery record suppresses completed replays and caches
+/// answers, but an external send and the Delivered write cannot be committed atomically.
 /// </summary>
 public sealed class OrchestratorActivities
 {
@@ -22,18 +18,18 @@ public sealed class OrchestratorActivities
 
     private readonly OrchestratorChannel _channel;
     private readonly IChannelAdapter _adapter;
-    private readonly IStorage _storage;
+    private readonly ChannelSessionStore _store;
     private readonly ILogger<OrchestratorActivities> _logger;
 
     public OrchestratorActivities(
         OrchestratorChannel channel,
         IChannelAdapter adapter,
-        IStorage storage,
+        ChannelSessionStore store,
         ILogger<OrchestratorActivities> logger)
     {
         _channel = channel;
         _adapter = adapter;
-        _storage = storage;
+        _store = store;
         _logger = logger;
     }
 
@@ -48,21 +44,35 @@ public sealed class OrchestratorActivities
     {
         CancellationToken cancellationToken = context.CancellationToken;
 
-        if (await AlreadyCompletedAsync(request.IdempotencyKey, cancellationToken))
+        try
         {
-            // Replay after a recorded success: sending again would duplicate the Teams message
-            // and inject a duplicate question into the subagent's own conversation state.
-            _logger.LogInformation(
-                "Skipping replay of already-completed turn {Key}.", request.IdempotencyKey);
+            TurnDeliveryRecord? turn = await _store.ReadTurnAsync(
+                request.SessionKey, request.TurnId, cancellationToken);
+            if (turn?.Status == TurnDeliveryStatus.Delivered)
+            {
+                return "skipped";
+            }
 
-            return "skipped";
+            await ContinueConversationAsync(request, cancellationToken);
+            turn = await _store.ReadTurnAsync(request.SessionKey, request.TurnId, cancellationToken);
+            if (turn?.Status != TurnDeliveryStatus.Delivered)
+            {
+                // Auto-sign-in may return without running the callback. That is not delivery.
+                throw new InvalidOperationException("The continued turn did not deliver its answer.");
+            }
+
+            return "sent";
         }
-
-        await ContinueConversationAsync(request, cancellationToken);
-
-        await MarkCompletedAsync(request.IdempotencyKey, cancellationToken);
-
-        return "sent";
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException("Channel turn cancelled.", cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Channel turn processing or delivery failed.");
+            // Durable failure payloads must not contain downstream bodies, questions or tokens.
+            throw new InvalidOperationException("Channel turn failed. See the channel's restricted logs.");
+        }
     }
 
     /// <summary>
@@ -88,8 +98,7 @@ public sealed class OrchestratorActivities
 
         IActivity continuation = reference.GetContinuationActivity();
 
-        // Only the payload is attached. The activity type and name are left as the SDK
-        // produced them, so the [ContinueConversation] route still matches.
+        // Keep the SDK continuation activity and attach only the identifier payload.
         continuation.Value = request;
 
         await _channel.Proactive.ContinueConversationAsync(
@@ -100,36 +109,5 @@ public sealed class OrchestratorActivities
             autoSignInHandlers: ["mcs"],
             continuationActivity: continuation,
             cancellationToken: cancellationToken);
-    }
-
-    private async Task<bool> AlreadyCompletedAsync(string key, CancellationToken ct)
-    {
-        IDictionary<string, object> items =
-            await _storage.ReadAsync([IdempotencyKeyFor(key)], ct);
-
-        return items.Count > 0;
-    }
-
-    private Task MarkCompletedAsync(string key, CancellationToken ct)
-    {
-        var changes = new Dictionary<string, object>
-        {
-            [IdempotencyKeyFor(key)] = new TurnCompletionRecord()
-        };
-
-        return _storage.WriteAsync(changes, ct);
-    }
-
-    /// <summary>
-    /// Hashed because the raw key contains the session key, and store keys are not a place
-    /// to put identity-derived values in the clear.
-    /// </summary>
-    private static string IdempotencyKeyFor(string key)
-        => "turn-complete-" + Convert.ToHexString(
-            SHA256.HashData(Encoding.UTF8.GetBytes(key)));
-
-    private sealed class TurnCompletionRecord : IStoreItem
-    {
-        public string? ETag { get; set; }
     }
 }

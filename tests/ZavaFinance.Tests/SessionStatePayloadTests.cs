@@ -1,112 +1,106 @@
-// Copyright (c) Microsoft Corporation.
-
 using System.Text.Json;
+using Azure.Core;
+using ZavaFinance.Agent;
 using ZavaFinance.Core.Agent;
 using Xunit;
 
 namespace ZavaFinance.Tests;
 
-/// <summary>
-/// Round-trip shape for state persisted to the platform state store.
-/// <para>
-/// The store writes every field it is given with <c>Utf8JsonWriter.WriteRawValue</c>, so each one
-/// must be valid JSON on its own. Handing it a bare string — a type name, for instance — fails
-/// with <c>'Z' is an invalid start of a value</c>, the Z being ZavaFinance. That failure is badly
-/// placed as well as obscure: it happens on the write that follows a completed turn, so a sourced
-/// subagent answer that took tens of seconds to produce is thrown away.
-/// </para>
-/// <para>
-/// The item is therefore serialized as a <b>single JSON object</b> rather than as separate type
-/// and value fields, which removes the possibility of writing a non-JSON field at all.
-/// </para>
-/// </summary>
 public sealed class SessionStatePayloadTests
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-
-    private sealed record StoredItem(string Type, JsonElement Value);
-
-    private static BinaryData Store(object value)
-    {
-        using JsonDocument inner = JsonDocument.Parse(
-            JsonSerializer.Serialize(value, value.GetType(), Json));
-
-        return BinaryData.FromObjectAsJson(
-            new StoredItem(value.GetType().AssemblyQualifiedName!, inner.RootElement), Json);
-    }
-
-    /// <summary>
-    /// Reproduces the production failure, so the shape that caused it cannot come back unnoticed.
-    /// </summary>
     [Fact]
-    public void ABareTypeNameIsNotValidJson()
+    public void TypedPayloadIsOneJsonObjectWithOnlyAgentState()
     {
-        string typeName = typeof(OrchestratorSessionState).AssemblyQualifiedName!;
-
-        JsonException error = Assert.ThrowsAny<JsonException>(
-            () => JsonDocument.Parse(BinaryData.FromString(typeName).ToString()));
-
-        Assert.Contains("invalid start of a value", error.Message, StringComparison.Ordinal);
-    }
-
-    /// <summary>Whatever is handed to the store must parse as a JSON object.</summary>
-    [Fact]
-    public void StoredItemIsAlwaysAJsonObject()
-    {
-        foreach (object value in new object[]
-                 {
-                     new OrchestratorSessionState { LastKpiName = "EBIT" },
-                     new PendingTurn { Question = "What is net revenue?" }
-                 })
+        var state = new OrchestratorSessionState
         {
-            using JsonDocument parsed = JsonDocument.Parse(Store(value).ToString());
-
-            Assert.Equal(JsonValueKind.Object, parsed.RootElement.ValueKind);
-            Assert.True(parsed.RootElement.TryGetProperty("type", out _));
-            Assert.True(parsed.RootElement.TryGetProperty("value", out _));
-        }
-    }
-
-    [Fact]
-    public void SessionStateRoundTripsThroughItsStoredRepresentation()
-    {
-        var original = new OrchestratorSessionState
-        {
-            CopilotStudioConversationId = "conversation-1",
-            HostedAgentConversationId = "conv_abc123",
-            LastKpiName = "Net Revenue",
-            LastSubagent = OrchestratorRoute.KpiInfoTool,
-            AgentSessionJson = """{"sessionId":"opaque"}"""
+            AgentSessionVersion = 1,
+            AgentSessionJson = "{\"messages\":\"a \\\"quote\\\"\\n[1]\"}",
+            CopilotStudioConversationId = "kpipedia-conversation",
+            LastKpiName = "Net Revenue"
         };
-
-        StoredItem stored = Store(original).ToObjectFromJson<StoredItem>(Json)!;
-        Type type = Type.GetType(stored.Type)!;
-        var restored = (OrchestratorSessionState)stored.Value.Deserialize(type, Json)!;
-
-        Assert.Equal(original.CopilotStudioConversationId, restored.CopilotStudioConversationId);
-        Assert.Equal(original.HostedAgentConversationId, restored.HostedAgentConversationId);
-        Assert.Equal(original.LastKpiName, restored.LastKpiName);
-        Assert.Equal(original.LastSubagent, restored.LastSubagent);
-        Assert.Equal(original.AgentSessionJson, restored.AgentSessionJson);
+        BinaryData data = FoundrySessionStore.Serialize(state);
+        using JsonDocument document = JsonDocument.Parse(data);
+        Assert.Equal(JsonValueKind.Object, document.RootElement.ValueKind);
+        Assert.Equal(4, document.RootElement.EnumerateObject().Count());
+        Assert.False(document.RootElement.TryGetProperty("type", out _));
+        OrchestratorSessionState restored = FoundrySessionStore.Deserialize(data);
+        Assert.Equal(state.AgentSessionVersion, restored.AgentSessionVersion);
+        Assert.Equal(state.AgentSessionJson, restored.AgentSessionJson);
+        Assert.Equal(state.CopilotStudioConversationId, restored.CopilotStudioConversationId);
+        Assert.Equal(state.LastKpiName, restored.LastKpiName);
     }
 
-    /// <summary>
-    /// A stored answer can contain markdown, citations and quotes. None of it may break the
-    /// envelope, because the tool's output is returned verbatim.
-    /// </summary>
     [Fact]
-    public void AwkwardContentSurvivesTheEnvelope()
+    public void LegacyEnvelopeMigratesWithoutLoadingOldAssemblyOrRetainingChannelState()
     {
-        var turn = new PendingTurn
-        {
-            Question = "What is \"net revenue\"?",
-            Answer = "**Net revenue** is revenue less deductions.\n\n| A | B |\n|---|---|\n[1] source"
-        };
+        BinaryData legacy = BinaryData.FromString("""
+            {
+              "type": "ZavaFinance.Core.Agent.OrchestratorSessionState, ZavaFinance.Agent, Version=0.0.0.1, Culture=neutral",
+              "value": {
+                "agentSessionVersion": 1,
+                "agentSessionJson": "{\"sessionId\":\"opaque\"}",
+                "copilotStudioConversationId": "kpipedia-old",
+                "lastKpiName": "EBIT",
+                "hostedAgentConversationId": "conv-channel",
+                "fabricThreadId": "obsolete",
+                "lastSubagent": "get_kpi_info",
+                "eTag": "*"
+              }
+            }
+            """);
+        OrchestratorSessionState state = FoundrySessionStore.Deserialize(legacy);
+        Assert.Equal(1, state.AgentSessionVersion);
+        Assert.Equal("{\"sessionId\":\"opaque\"}", state.AgentSessionJson);
+        Assert.Equal("kpipedia-old", state.CopilotStudioConversationId);
+        Assert.Equal("EBIT", state.LastKpiName);
+        string rewritten = FoundrySessionStore.Serialize(state).ToString();
+        Assert.DoesNotContain("conv-channel", rewritten);
+        Assert.DoesNotContain("fabricThread", rewritten);
+        Assert.DoesNotContain("lastSubagent", rewritten);
+        Assert.DoesNotContain("eTag", rewritten);
+    }
 
-        StoredItem stored = Store(turn).ToObjectFromJson<StoredItem>(Json)!;
-        var restored = (PendingTurn)stored.Value.Deserialize(Type.GetType(stored.Type)!, Json)!;
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("{\"type\":\"System.String, System.Private.CoreLib\",\"value\":\"not a session\"}")]
+    [InlineData("{\"type\":\"ZavaFinance.Core.Agent.OrchestratorSessionState, old\",\"value\":null}")]
+    [InlineData("{\"type\":\"ZavaFinance.Core.Agent.OrchestratorSessionState, old\"}")]
+    public void InvalidStateFailsExplicitlyRatherThanResettingTheConversation(string json)
+    {
+        Assert.Throws<JsonException>(() => FoundrySessionStore.Deserialize(BinaryData.FromString(json)));
+    }
 
-        Assert.Equal(turn.Question, restored.Question);
-        Assert.Equal(turn.Answer, restored.Answer);
+    [Fact]
+    public void ExistingStorageKeysAreUnchanged()
+    {
+        Assert.Equal("orchestrator_USERA", FoundrySessionStore.KeyFor("USERA"));
+        Assert.NotEqual(FoundrySessionStore.KeyFor("USERA"), FoundrySessionStore.KeyFor("USERB"));
+        Assert.Throws<ArgumentException>(() => FoundrySessionStore.KeyFor(""));
+    }
+
+    [Fact]
+    public void ConstructingTheStoreDoesNotContactFoundry()
+    {
+        using var store = new FoundrySessionStore("test-store", new NoNetworkCredential(), TimeSpan.FromDays(30));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(2147483648)]
+    public void InvalidTtlIsRejected(double seconds)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new FoundrySessionStore("test-store", new NoNetworkCredential(), TimeSpan.FromSeconds(seconds)));
+    }
+
+    private sealed class NoNetworkCredential : TokenCredential
+    {
+        public override AccessToken GetToken(TokenRequestContext requestContext, CancellationToken cancellationToken)
+            => throw new InvalidOperationException("Construction must not authenticate.");
+        public override ValueTask<AccessToken> GetTokenAsync(
+            TokenRequestContext requestContext, CancellationToken cancellationToken)
+            => throw new InvalidOperationException("Construction must not authenticate.");
     }
 }

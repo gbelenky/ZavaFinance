@@ -12,20 +12,9 @@ public sealed class OrchestratorOptions
     public string SessionKeySalt { get; set; } = string.Empty;
 
     /// <summary>
-    /// Name of the OAuth/OBO handler configured under
-    /// <c>AgentApplication:UserAuthorization:Handlers</c>.
-    /// </summary>
-    public string UserAuthorizationHandler { get; set; } = "mcs";
-
-    /// <summary>
     /// Conversation history retention. Each interaction resets the timer.
     /// </summary>
     public TimeSpan SessionTimeToLive { get; set; } = TimeSpan.FromDays(30);
-
-    /// <summary>
-    /// Tool-neutral message shown while the durable turn runs.
-    /// </summary>
-    public string AcknowledgementText { get; set; } = "Working on that…";
 
     /// <summary>
     /// Ceiling for a single Copilot Studio call. Measured p50 is ~51 s.
@@ -36,7 +25,19 @@ public sealed class OrchestratorOptions
     /// History cap for the agent's conversation. Unbounded history costs tokens and latency
     /// on every turn.
     /// </summary>
-    public int MaxHistoryMessages { get; set; } = 20;
+    public const int DefaultMaxHistoryMessages = 20;
+    private int _maxHistoryMessages = DefaultMaxHistoryMessages;
+
+    public int MaxHistoryMessages
+    {
+        get => _maxHistoryMessages;
+        set
+        {
+            // A native turn consists of a user message, a call and its result marker.
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, 3);
+            _maxHistoryMessages = value;
+        }
+    }
 
     /// <summary>
     /// Logs the subagent's answer text. <b>Off by default.</b> Subagent answers are

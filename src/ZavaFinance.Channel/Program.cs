@@ -15,15 +15,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OpenTelemetry;
 using ZavaFinance.Channel;
-using ZavaFinance.Core.Agent;
-using ZavaFinance.Core.Configuration;
 using ZavaFinance.Core.Identity;
 
 FunctionsApplicationBuilder builder = FunctionsApplication.CreateBuilder(args);
 builder.ConfigureFunctionsWebApplication();
 
-var orchestratorOptions = new OrchestratorOptions();
-builder.Configuration.GetSection(OrchestratorOptions.SectionName).Bind(orchestratorOptions);
+var orchestratorOptions = new ChannelOptions();
+builder.Configuration.GetSection(ChannelOptions.SectionName).Bind(orchestratorOptions);
 
 var hostedAgentOptions = new HostedAgentOptions();
 builder.Configuration.GetSection(HostedAgentOptions.SectionName).Bind(hostedAgentOptions);
@@ -47,15 +45,19 @@ builder.Services.AddSingleton(TimeProvider.System);
 var credential = new DefaultAzureCredential();
 builder.Services.AddSingleton<Azure.Core.TokenCredential>(credential);
 
-builder.Services.AddSingleton<IStorage>(_ =>
+builder.Services.AddSingleton<BlobContainerClient>(_ =>
 {
     string container = builder.Configuration["State:ContainerUri"]
         ?? throw new InvalidOperationException("State:ContainerUri is required.");
 
-    return new BlobsStorage(new BlobContainerClient(new Uri(container), credential));
+    return new BlobContainerClient(new Uri(container), credential);
 });
 
-builder.Services.AddSingleton<OrchestratorSessionStore>();
+builder.Services.AddSingleton<IStorage>(services =>
+    new BlobsStorage(services.GetRequiredService<BlobContainerClient>()));
+builder.Services.AddSingleton(services =>
+    new ChannelSessionStore(new ChannelBlobStorage(services.GetRequiredService<BlobContainerClient>())));
+builder.Services.AddSingleton<ChannelTurnProcessor>();
 builder.Services.AddSingleton<ISessionKeyProvider>(
     _ => new SessionKeyProvider(orchestratorOptions.SessionKeySalt));
 builder.Services.AddSingleton<ICallerIdentityResolver>(

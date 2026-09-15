@@ -11,8 +11,6 @@ using Microsoft.Agents.Builder.State;
 using Microsoft.Agents.Builder.UserAuth;
 using Microsoft.Agents.Core.Models;
 using Microsoft.Extensions.Logging;
-using ZavaFinance.Core.Agent;
-using ZavaFinance.Core.Configuration;
 using ZavaFinance.Core.Identity;
 
 namespace ZavaFinance.Channel;
@@ -36,10 +34,9 @@ public sealed class OrchestratorChannel : AgentApplication
     private readonly ICallerIdentityResolver _identityResolver;
     private readonly ISessionKeyProvider _sessionKeyProvider;
     private readonly IOrchestratorTurnScheduler _turnScheduler;
-    private readonly IHostedAgentClient _hostedAgent;
-    private readonly OrchestratorSessionStore _sessionStore;
-    private readonly OrchestratorOptions _options;
-    private readonly TimeProvider _timeProvider;
+    private readonly ChannelTurnProcessor _turnProcessor;
+    private readonly ChannelSessionStore _sessionStore;
+    private readonly ChannelOptions _options;
     private readonly ILogger<OrchestratorChannel> _logger;
 
     public OrchestratorChannel(
@@ -47,20 +44,18 @@ public sealed class OrchestratorChannel : AgentApplication
         ICallerIdentityResolver identityResolver,
         ISessionKeyProvider sessionKeyProvider,
         IOrchestratorTurnScheduler turnScheduler,
-        IHostedAgentClient hostedAgent,
-        OrchestratorSessionStore sessionStore,
-        OrchestratorOptions options,
-        TimeProvider timeProvider,
+        ChannelTurnProcessor turnProcessor,
+        ChannelSessionStore sessionStore,
+        ChannelOptions options,
         ILogger<OrchestratorChannel> logger)
         : base(applicationOptions)
     {
         _identityResolver = identityResolver;
         _sessionKeyProvider = sessionKeyProvider;
         _turnScheduler = turnScheduler;
-        _hostedAgent = hostedAgent;
+        _turnProcessor = turnProcessor;
         _sessionStore = sessionStore;
         _options = options;
-        _timeProvider = timeProvider;
         _logger = logger;
 
         UserAuthorization.OnUserSignInFailure(OnSignInFailureAsync);
@@ -140,16 +135,25 @@ public sealed class OrchestratorChannel : AgentApplication
         // orchestration payload, because the Durable Task dashboard exposes payloads and is a
         // different access-control boundary. Access tokens and tool results never enter
         // orchestration state either.
-        await _sessionStore.SavePendingTurnAsync(
+        bool created = await _sessionStore.CreateTurnAsync(
             sessionKey, turnId, question, cancellationToken);
+
+        TurnDeliveryRecord? turn = await _sessionStore.ReadTurnAsync(sessionKey, turnId, cancellationToken);
+        if (turn?.Status == TurnDeliveryStatus.Delivered)
+        {
+            return;
+        }
 
         // Stored so the durable activity can resume this conversation later.
         string conversationRecordId =
             await Proactive.StoreConversationAsync(turnContext, cancellationToken);
 
         // Ack first and await it, so it is ordered ahead of the proactive answer.
-        await turnContext.SendActivityAsync(
-            _options.AcknowledgementText, cancellationToken: cancellationToken);
+        if (created)
+        {
+            await turnContext.SendActivityAsync(
+                _options.AcknowledgementText, cancellationToken: cancellationToken);
+        }
 
         // Activity.ChannelId is a ChannelId value object, not a string.
         string channelId = turnContext.Activity.ChannelId?.ToString() ?? "unknown";
@@ -193,129 +197,19 @@ public sealed class OrchestratorChannel : AgentApplication
     }
 
     /// <summary>
-    /// Runs the slow work on the durable path. The <c>[ContinueConversation]</c> attribute
-    /// makes the SDK acquire the named handler's token for this proactive turn, which is how
-    /// a per-user OBO token is obtained outside the original inbound turn.
+    /// Runs the slow work after the proactive SDK has acquired the named handler's token.
     /// </summary>
-    public async Task ContinueTurnAsync(
+    public Task ContinueTurnAsync(
         ITurnContext turnContext,
         ITurnState turnState,
         CancellationToken cancellationToken)
     {
         OrchestratorTurnRequest request = ReadRequest(turnContext);
 
-        PendingTurn? pendingTurn = await _sessionStore.ReadPendingTurnAsync(
-            request.SessionKey, request.TurnId, cancellationToken);
-
-        if (pendingTurn is null || string.IsNullOrWhiteSpace(pendingTurn.Question))
-        {
-            // The record is deleted once answered, so this is a replay of a completed turn.
-            _logger.LogInformation(
-                "No pending turn {TurnId}; the answer was already delivered.", request.TurnId);
-
-            return;
-        }
-
-        string answer = pendingTurn.Answer ?? string.Empty;
-
-        // Started only when there is actually a wait. A replayed turn already has its answer and
-        // must not narrate a delay that is not happening.
-        TurnProgress? progress = null;
-
-        if (string.IsNullOrEmpty(answer))
-        {
-            progress = TurnProgress.Start(turnContext, _logger, _timeProvider);
-
-            try
-            {
-                // Acquired late and used immediately. This is the raw Teams SSO token, which is
-                // the assertion the hosted agent exchanges; it is forwarded and then dropped,
-                // never stored and never written to an orchestration payload.
-                string assertion = await turnContext.GetTurnTokenAsync(
-                    _options.UserAuthorizationHandler, cancellationToken: cancellationToken);
-
-                if (string.IsNullOrWhiteSpace(assertion))
-                {
-                    throw new InvalidOperationException(
-                        "No user token was available for the continued turn.");
-                }
-
-                // The hosted agent's conversation is created once per user session and reused.
-                // Without it each turn opens a new conversation, and the agent loses the latest
-                // KPI and the Copilot Studio handle every time.
-                OrchestratorSessionState state =
-                    await _sessionStore.LoadAsync(request.SessionKey, cancellationToken);
-
-                if (string.IsNullOrWhiteSpace(state.HostedAgentConversationId))
-                {
-                    state.HostedAgentConversationId =
-                        await _hostedAgent.CreateConversationAsync(cancellationToken);
-
-                    await _sessionStore.SaveAsync(request.SessionKey, state, cancellationToken);
-                }
-
-                answer = await _hostedAgent.AskAsync(
-                    pendingTurn.Question,
-                    assertion,
-                    state.HostedAgentConversationId,
-                    cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                // A front door with no fallback is a dead end in Teams.
-                _logger.LogError(ex, "Hosted agent turn failed.");
-                answer = "Something went wrong while answering that. Please try again.";
-            }
-
-            // Persist before delivery. If delivery fails and Durable Task retries the activity,
-            // the slow downstream call is not repeated.
-            await _sessionStore.SavePendingTurnAnswerAsync(
-                request.SessionKey, request.TurnId, pendingTurn, answer, cancellationToken);
-        }
-        else
-        {
-            _logger.LogInformation(
-                "Reusing the completed answer for retried turn {TurnId}.", request.TurnId);
-        }
-
-        if (progress is not null)
-        {
-            // Delivered through the progress, because on a streaming channel the answer has to
-            // become the stream's final message. Sending it separately would leave a live status
-            // line that never resolves.
-            await using (progress)
-            {
-                await progress.CompleteAsync(answer, cancellationToken);
-            }
-        }
-        else
-        {
-            await turnContext.SendActivityAsync(
-                MessageFactory.Text(answer), cancellationToken);
-        }
-
-        await _sessionStore.DeletePendingTurnAsync(
-            request.SessionKey, request.TurnId, cancellationToken);
+        return _turnProcessor.ProcessAsync(request, turnContext,
+            ct => turnContext.GetTurnTokenAsync(_options.UserAuthorizationHandler, cancellationToken: ct),
+            cancellationToken);
     }
-
-    /// <summary>
-    /// Tool-specific progress messages are <b>not available in this topology</b>, and that is a
-    /// deliberate, recorded limitation rather than an oversight.
-    /// <para>
-    /// Routing happens inside the hosted agent, so this host learns which tool was selected only
-    /// when the finished answer comes back — by which point a message naming it is pointless. The
-    /// user therefore sees the tool-neutral acknowledgement for the whole wait, which can be a
-    /// minute or more.
-    /// </para>
-    /// <para>
-    /// Restoring it requires the hosted agent to stream, so the channel can observe an early
-    /// event carrying the selected route and relay it. That is a real option — the Responses
-    /// protocol supports SSE — but it trades this design's "responses are returned whole" rule
-    /// for partial output, so it is not taken by default.
-    /// </para>
-    /// </summary>
-    internal static string AcknowledgementFor(OrchestratorOptions options) =>
-        options.AcknowledgementText;
 
     /// <summary>
     /// The payload may arrive as the original object when the continuation stays in process,

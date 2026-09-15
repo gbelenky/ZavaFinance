@@ -13,14 +13,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ZavaFinance.Agent\ZavaFinance.Agent.csproj" />
+    <ProjectReference Include="..\ZavaFinance.Agent\Identity\ZavaFinance.Identity.csproj" />
   </ItemGroup>
 
   <!--
     Every package here is GA. Durable Functions is used only for
     acknowledge-then-answer-proactively, which is forced by the 10-15 second channel timeout
-    rather than by anything in the agent. The routing conversation is serialized into this
-    solution's own store rather than a durable entity, which is what keeps
+    rather than by anything in the agent. Channel delivery records live in private Blob
+    storage rather than durable history, which keeps
     Microsoft.Agents.AI.DurableTask and Microsoft.Agents.AI.Hosting.AzureFunctions - neither of
     which has a GA release - out of this project entirely.
   -->

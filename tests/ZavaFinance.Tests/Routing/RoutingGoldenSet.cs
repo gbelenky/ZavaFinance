@@ -67,7 +67,7 @@ public static class RoutingGoldenSet
         {
             Id = "kpi-what-is",
             Utterance = "What is allocated income?",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "allocated income",
             Rationale = "Plain definition question is the canonical get_kpi_info trigger."
         },
@@ -75,7 +75,7 @@ public static class RoutingGoldenSet
         {
             Id = "kpi-how-calculated",
             Utterance = "How is EBIT calculated?",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "ebit",
             Rationale = "'How is X calculated' is a definition request, not a request for figures."
         },
@@ -83,7 +83,7 @@ public static class RoutingGoldenSet
         {
             Id = "kpi-explain",
             Utterance = "Explain net revenues to me.",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "net revenue",
             Rationale = "'Explain' is definitional even without the word 'what'."
         },
@@ -91,7 +91,7 @@ public static class RoutingGoldenSet
         {
             Id = "kpi-what-does-mean",
             Utterance = "What does gross margin mean?",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "gross margin",
             Rationale = "Meaning question, no organization or period present."
         },
@@ -99,7 +99,7 @@ public static class RoutingGoldenSet
         {
             Id = "kpi-tell-me-about",
             Utterance = "Tell me about operating margin.",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "operating margin",
             Rationale =
                 "Ambiguous phrasing with no org or period. The tool description's negative "
@@ -114,7 +114,7 @@ public static class RoutingGoldenSet
         {
             Id = "stmt-full-args",
             Utterance = "Show me net revenues for Nordics in Q3 2026.",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "net revenue",
             OrgContains = "nordic",
             DateRangeContains = ["Q3", "2026"],
@@ -124,7 +124,7 @@ public static class RoutingGoldenSet
         {
             Id = "stmt-named-entity-org",
             Utterance = "Give me the EBIT statement for Zava GmbH for January to March 2026.",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "ebit",
             OrgContains = "zava",
             DateRangeContains = ["January", "2026"],
@@ -134,7 +134,7 @@ public static class RoutingGoldenSet
         {
             Id = "stmt-figures-wording",
             Utterance = "What were the figures for gross margin in EMEA last quarter?",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "gross margin",
             OrgContains = "emea",
             Rationale =
@@ -145,7 +145,7 @@ public static class RoutingGoldenSet
         {
             Id = "stmt-report-wording",
             Utterance = "I need a report on headcount for APAC for FY2026.",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "headcount",
             OrgContains = "apac",
             DateRangeContains = ["2026"],
@@ -155,7 +155,7 @@ public static class RoutingGoldenSet
         {
             Id = "stmt-terse",
             Utterance = "Numbers for operating margin, Germany, Q1 2026.",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "operating margin",
             OrgContains = "germany",
             DateRangeContains = ["Q1", "2026"],
@@ -169,28 +169,28 @@ public static class RoutingGoldenSet
         {
             Id = "none-greeting",
             Utterance = "Hello there!",
-            ExpectedTool = OrchestratorRoute.NoTool,
+            ExpectedTool = FinanceToolNames.NoTool,
             Rationale = "A greeting must not invoke a subagent; Copilot Studio calls cost ~51 s."
         },
         new()
         {
             Id = "none-capability",
             Utterance = "What can you do?",
-            ExpectedTool = OrchestratorRoute.NoTool,
+            ExpectedTool = FinanceToolNames.NoTool,
             Rationale = "Capability question is answered by the orchestrator itself."
         },
         new()
         {
             Id = "none-off-topic",
             Utterance = "What's the weather in Stockholm tomorrow?",
-            ExpectedTool = OrchestratorRoute.NoTool,
+            ExpectedTool = FinanceToolNames.NoTool,
             Rationale = "Off-topic must degrade gracefully rather than guess a KPI."
         },
         new()
         {
             Id = "none-thanks",
             Utterance = "Thanks, that's helpful.",
-            ExpectedTool = OrchestratorRoute.NoTool,
+            ExpectedTool = FinanceToolNames.NoTool,
             Rationale = "Acknowledgement must not re-trigger the previous tool."
         },
 
@@ -202,7 +202,7 @@ public static class RoutingGoldenSet
             Id = "sticky-followup-inherits-kpi",
             PriorTurns = ["What is allocated income?"],
             Utterance = "And for the Nordics in Q3 2026?",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "allocated income",
             KpiMayBeInherited = true,
             OrgContains = "nordic",
@@ -221,7 +221,7 @@ public static class RoutingGoldenSet
                 "Show me gross margin for EMEA in Q1 2026."
             ],
             Utterance = "What about APAC?",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             OrgContains = "apac",
             KpiMayBeInherited = true,
             Rationale = "Only the organization changes; KPI and period carry over."
@@ -231,7 +231,7 @@ public static class RoutingGoldenSet
             Id = "sticky-topic-change-drops-kpi",
             PriorTurns = ["What is EBIT?"],
             Utterance = "Actually, what is gross margin?",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "gross margin",
             Rationale =
                 "A clear topic change must stop inheriting. Returning 'EBIT' here is the "
@@ -242,7 +242,7 @@ public static class RoutingGoldenSet
             Id = "sticky-definition-after-statement",
             PriorTurns = ["Show me net revenues for Nordics in Q3 2026."],
             Utterance = "How is that actually defined?",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "net revenue",
             Rationale =
                 "Switching from figures back to definition for the same KPI: the tool changes "
@@ -258,7 +258,7 @@ public static class RoutingGoldenSet
         {
             Id = "adversarial-what-is-but-wants-figures",
             Utterance = "What is the net revenue for Nordics in Q3 2026?",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "net revenue",
             OrgContains = "nordic",
             DateRangeContains = ["Q3", "2026"],
@@ -270,7 +270,7 @@ public static class RoutingGoldenSet
         {
             Id = "adversarial-how-much-wants-figures",
             Utterance = "How much was EBIT for Zava GmbH in Q2 2026?",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "ebit",
             OrgContains = "zava",
             DateRangeContains = ["Q2", "2026"],
@@ -282,7 +282,7 @@ public static class RoutingGoldenSet
         {
             Id = "adversarial-comparison-is-definitional",
             Utterance = "Is allocated income the same thing as net revenue?",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             Rationale =
                 "A comparison between two KPIs is still a definition question with no "
                 + "organization or period, so it must not become a statement request."
@@ -291,7 +291,7 @@ public static class RoutingGoldenSet
         {
             Id = "adversarial-knowledge-base-phrasing",
             Utterance = "What does KPIpedia say about operating margin?",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "operating margin",
             Rationale =
                 "Names the knowledge base explicitly; must route to the subagent that owns it "
@@ -301,7 +301,7 @@ public static class RoutingGoldenSet
         {
             Id = "adversarial-figures-without-org-or-period",
             Utterance = "How much did we spend on headcount?",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "headcount",
             Rationale =
                 "A request for figures with no organization or period. The route is still "
@@ -319,7 +319,7 @@ public static class RoutingGoldenSet
         {
             Id = "hard-figures-with-no-org-or-period",
             Utterance = "Show me EBIT.",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "ebit",
             Rationale =
                 "'Show me' is a figures request even stripped of every other argument. The "
@@ -329,7 +329,7 @@ public static class RoutingGoldenSet
         {
             Id = "hard-definition-despite-org-present",
             Utterance = "In the Nordics, how do we define allocated income?",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "allocated income",
             Rationale =
                 "An organization is present, which is the strongest single signal for "
@@ -340,7 +340,7 @@ public static class RoutingGoldenSet
         {
             Id = "hard-negated-definition-decoy",
             Utterance = "I don't need the definition, just the Q3 2026 numbers for EBIT in EMEA.",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "ebit",
             OrgContains = "emea",
             DateRangeContains = ["Q3", "2026"],
@@ -352,7 +352,7 @@ public static class RoutingGoldenSet
         {
             Id = "hard-give-me-the-definition",
             Utterance = "Give me the definition of operating margin.",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "operating margin",
             Rationale =
                 "'Give me' is a statement trigger and 'definition' is the real intent. The "
@@ -362,7 +362,7 @@ public static class RoutingGoldenSet
         {
             Id = "hard-implicit-performance-question",
             Utterance = "How are we doing on headcount in APAC this year?",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "headcount",
             OrgContains = "apac",
             Rationale =
@@ -374,7 +374,7 @@ public static class RoutingGoldenSet
             Id = "hard-period-only-followup",
             PriorTurns = ["What is EBIT?"],
             Utterance = "Q3 2026?",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "ebit",
             KpiMayBeInherited = true,
             DateRangeContains = ["Q3", "2026"],
@@ -387,7 +387,7 @@ public static class RoutingGoldenSet
             Id = "hard-org-only-drift-keeps-period",
             PriorTurns = ["Show me gross margin for EMEA in Q1 2026."],
             Utterance = "And Q2?",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "gross margin",
             KpiMayBeInherited = true,
             OrgContains = "emea",
@@ -406,7 +406,7 @@ public static class RoutingGoldenSet
                 "What is gross margin?"
             ],
             Utterance = "Now show me that for the Nordics in Q2 2026.",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "gross margin",
             KpiMayBeInherited = true,
             OrgContains = "nordic",
@@ -420,7 +420,7 @@ public static class RoutingGoldenSet
             Id = "hard-real-question-after-greeting",
             PriorTurns = ["Hello there!"],
             Utterance = "What is EBIT?",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "ebit",
             Rationale =
                 "A 'none' turn must not poison the session. The first real question after "
@@ -436,7 +436,7 @@ public static class RoutingGoldenSet
         {
             Id = "explore-why-question",
             Utterance = "Why did APAC margin fall in Q3 2026, and which departments drove it?",
-            ExpectedTool = OrchestratorRoute.ExploreFinanceTool,
+            ExpectedTool = FinanceToolNames.ExploreFinanceTool,
             Rationale =
                 "Causal analysis across departments cannot be expressed as one "
                 + "KPI-organization-period lookup."
@@ -445,7 +445,7 @@ public static class RoutingGoldenSet
         {
             Id = "explore-ranking",
             Utterance = "Which department had the highest revenue per FTE in 2026?",
-            ExpectedTool = OrchestratorRoute.ExploreFinanceTool,
+            ExpectedTool = FinanceToolNames.ExploreFinanceTool,
             Rationale =
                 "Ranking across all departments needs analysis; get_statement returns a single "
                 + "figure for one named organization."
@@ -454,21 +454,21 @@ public static class RoutingGoldenSet
         {
             Id = "explore-multi-region-comparison",
             Utterance = "Compare gross margin across all four regions for Q4 2026.",
-            ExpectedTool = OrchestratorRoute.ExploreFinanceTool,
+            ExpectedTool = FinanceToolNames.ExploreFinanceTool,
             Rationale = "Comparison across many organizations at once, not a single lookup."
         },
         new()
         {
             Id = "explore-trend",
             Utterance = "What trends do you see in our operating expenses over the last two years?",
-            ExpectedTool = OrchestratorRoute.ExploreFinanceTool,
+            ExpectedTool = FinanceToolNames.ExploreFinanceTool,
             Rationale = "Open-ended trend interpretation rather than a specific figure."
         },
         new()
         {
             Id = "explore-boundary-single-figure-stays-statement",
             Utterance = "What was EMEA net revenue in November 2025?",
-            ExpectedTool = OrchestratorRoute.StatementTool,
+            ExpectedTool = FinanceToolNames.StatementTool,
             KpiContains = "net revenue",
             OrgContains = "emea",
             DateRangeContains = ["November", "2025"],
@@ -480,7 +480,7 @@ public static class RoutingGoldenSet
         {
             Id = "explore-boundary-definition-stays-kpi-info",
             Utterance = "Why do we even track days sales outstanding?",
-            ExpectedTool = OrchestratorRoute.KpiInfoTool,
+            ExpectedTool = FinanceToolNames.KpiInfoTool,
             KpiContains = "days sales outstanding",
             Rationale =
                 "Begins with 'why', the analysis trigger, but asks about the meaning of a KPI "

@@ -4,6 +4,40 @@ A finance agent for **Microsoft Teams and Microsoft 365 Copilot**, split across 
 Foundry **hosted agent** that owns routing and tools, and a thin **channel** that owns identity,
 acknowledgement, and delivery.
 
+## Native function calling, verbatim answers
+
+The hosted agent exposes the three finance tools as native function schemas. The model selects
+at most one function and supplies its arguments; application code validates that call and
+executes the selected tool with the signed-in user's delegated identity.
+
+Tool registration lives directly in `OrchestratorAgent`: it lists the three tool classes and
+discovers their public instance methods marked `[OrchestratorTool]`. The attribute supplies the
+tool name; `[Description]` annotations and method signatures supply the descriptions and argument
+schemas. There is no per-method registration list, assembly-wide scan, or separate catalog class.
+The same annotation discovery locates the selected method for execution. `AIFunctionFactory`
+binds it to a caller-specific tool instance, and `AIFunction.InvokeAsync` binds the native
+arguments (including optional defaults and cancellation). There is no tool-name dispatch switch
+or tool-specific argument DTO. Lazy factories only wire each tool's dependencies; unselected
+clients are not created and bound functions are never shared between callers. The agent uses
+the SDK's `AgentResponse` and `FunctionCallContent` directly, with a single `ValidateToolCall`
+method for pre-execution checks rather than a custom selection-result wrapper.
+
+There is **no second model call to compose the answer**. The tool's complete response, including
+citations, figures, formatting, and its source footer, is returned directly. Native function
+calling does not require model-authored answer synthesis.
+
+Conversation history contains questions, function calls, and content-free tool-result markers
+that close those calls for subsequent turns. It never contains permissioned tool answers or
+access tokens. A missing business argument is handled by the tool's existing clarification
+logic; an unknown function, malformed argument, or multiple function calls is rejected before
+execution.
+
+Model requests use local history with Responses API output storage disabled. On the first turn
+after upgrading from structured routing, the old model history is reset; the per-user KPI and
+Copilot Studio conversation handle are retained. Invalid model calls are not replayed.
+`Orchestrator:MaxHistoryMessages` defaults to 20 and must be at least 3. History is trimmed
+before routing and persistence at whole-turn boundaries, so calls and result markers stay paired.
+
 It answers three kinds of question, each as the signed-in user:
 
 | Tool | Backed by | Shape |
@@ -71,24 +105,24 @@ session. `UserAssertionValidatorTests` pins this.
 ## Layout
 
 ```
-src/ZavaFinance.Agent/     Foundry hosted agent, and the shared core it carries:
+src/ZavaFinance.Agent/     Foundry hosted agent:
                              Agent/          routing agent and session state
                              Tools/          get_kpi_info, get_statement, explore_finance
                              Finance/        KPI catalog, period parsing, Fabric clients
-                             Identity/       session-key derivation
+                             Identity/       dependency-free shared identity project
                              Abstractions/   IDownstreamTokenProvider
 src/ZavaFinance.Channel/   Function App: Teams + M365 Copilot, ack, proactive delivery
 tests/ZavaFinance.Tests/   isolation, finance maths, tool failures, routing golden set
 appPackage/                Teams + Microsoft 365 Copilot manifest and icons
 ```
 
-The routing agent and tools live **inside** the agent project rather than in a separate library,
-because the hosted-agent code deploy uploads a single project directory: a project reference is
-dropped and the remote build fails on every shared type. The namespaces stay `ZavaFinance.Core.*`
-so the separation is still visible in the source tree, and the channel references this project to
-reuse exactly the same routing agent and tools. One copy of the code, one golden set, two hosts.
+The channel references **only** `ZavaFinance.Identity`, not the hosted-agent executable.
+That small project contains caller identity and session-key derivation. It is deliberately
+nested under the agent's upload directory: code deploy uploads one project directory, so an
+external sibling dependency would be absent from the remote build. Agent and channel both
+reference the same identity assembly; routing, tools, and finance dependencies stay agent-only.
 
-The seam that lets one set of tools serve both hosts is one interface:
+The hosted agent binds tools to one caller through:
 
 ```csharp
 public interface IDownstreamTokenProvider
@@ -97,9 +131,34 @@ public interface IDownstreamTokenProvider
 }
 ```
 
-The channel implementation delegates to the Agents SDK; the hosted agent implementation performs
-the MSAL On-Behalf-Of exchange. Everything else — routing, tools, aggregation rules, verbatim
-passthrough — is shared, so the golden set measures the code that actually runs.
+`OboTokenProvider` performs the MSAL On-Behalf-Of exchange. The channel forwards the original
+user assertion and never constructs these tools. Hosted execution and the golden set use the
+same routing definition.
+
+### State ownership
+
+| Host | Persisted application state | Store |
+|---|---|---|
+| Channel | Platform conversation ID; pending, answer-ready, and delivered turn records | Private Blob Storage |
+| Agent | Bounded routing history, latest KPI, KPIpedia conversation ID | Foundry State Store |
+
+`FoundrySessionStore` reads and writes one known session type without runtime CLR type loading.
+It preserves existing encoded keys and reads the old type/value envelope, ignoring obsolete
+channel and last-tool fields. New writes use a plain JSON session object. Storage initialization
+remains lazy and the configured TTL is retained.
+
+Completed finance answers are cached before channel delivery. Retries reuse that answer rather
+than repeat the finance call. A delivered record suppresses later redelivery; a process failure
+between the external send and recording delivery can still duplicate a message. This is not an
+exactly-once transport guarantee. Questions, answers, and user tokens do not enter Durable Task
+inputs or outputs.
+
+The MCP client uses the official `ModelContextProtocol.Core` transport for initialization,
+JSON-RPC and HTTP/SSE. Only Fabric-specific tool selection, delegated authentication, result
+extraction and retry policy remain in this project.
+
+Agent and channel configuration are separate types. The channel retains the `Orchestrator`
+configuration-section name for compatibility with existing deployment settings.
 
 ## Package status
 
@@ -109,7 +168,8 @@ Everything is GA except one package, and it is confined to one project:
 |---|---|---|
 | `Microsoft.Agents.AI` 1.21.0 | GA | Agent |
 | `Microsoft.Agents.CopilotStudio.Client` 1.8.77 | GA | Agent |
-| `Microsoft.Agents.Storage` 1.8.77 | GA | Agent |
+| `Microsoft.Agents.Storage.Blobs` 1.8.77 | GA | Channel |
+| `ModelContextProtocol.Core` 2.2.0 | Stable | Agent MCP transport |
 | `Microsoft.Data.SqlClient` 6.1.4 | GA | Agent |
 | `Microsoft.Agents.Hosting.AspNetCore` 1.8.77 | GA | Channel |
 | `Microsoft.Azure.Functions.Worker.Extensions.DurableTask` 1.16.4 | GA | Channel |
@@ -175,8 +235,44 @@ dotnet build
 dotnet test
 ```
 
-**147 tests, 0 warnings.** The routing eval self-skips without Foundry configuration, so a
-credential-less run still gets the deterministic suite. To run the live golden set:
+For an explicitly offline run, exclude the live routing evaluation:
+
+```powershell
+dotnet test --filter "FullyQualifiedName!~RoutingEvalTests"
+```
+
+The offline suite covers native calls, caller isolation, state migration, bounded history,
+ordinary-message delivery/retries, MCP transport, and deterministic finance calculations.
+
+The local simplification passed **222 targeted offline regression tests** (zero failures or
+skips). Both hosts built and published successfully. The agent also passed isolated
+single-directory publishing, local readiness, and missing-user-assertion checks; the channel
+publish contains the shared identity library without the hosted-agent runtime or MCP packages.
+On 15 September 2026 both simplified hosts were deployed: Foundry agent version **11**
+(`2026-09-15.2-native-routing`) and the existing Functions channel. Fabric was resumed on **F2**.
+Channel health, function indexing, Durable Task connectivity, and agent rejection of missing or
+wrong-audience user assertions passed.
+
+Signed-in Microsoft 365 Copilot testing on 15 September exercised the deployed version 11 in a
+fresh conversation:
+
+| Check | Result |
+| --- | --- |
+| KPIpedia explanation | Passed: full gross-margin definition, calculation and source footer. |
+| Contextual SQL follow-ups | Passed: EMEA November 2025 gross margin **42.52%**, then Q4 **42.67%** without repeating the KPI or geography. |
+| Closing headcount | Passed: EMEA Q4 2025 **3,247 FTE**, using the closing month rather than summing months. |
+| Fabric MCP and final delivery | Passed: both analysis requests returned full answers; all six finance turns had one final response, with progress before, never after, the final. All six answers persisted after reloading the browser. |
+| Fabric analysis accuracy | **Failed**: the ordinary question used gross revenue instead of net revenue (**38.86%** instead of **42.52%**). Supplying the correct formula recovered the margins but still produced an incorrect change (**-1.21 pp** instead of **-0.69 pp**). |
+
+This is **not a fully passing finance end-to-end result**. Correct the published Fabric data
+agent's KPI/query guidance and calculated changes upstream; the orchestrator must continue
+returning its answer verbatim. See [the handover](HANDOVER.md#what-is-open).
+Teams could not be exercised: both Teams web hosts redirected to "Classic Teams is no longer
+available." Two-user RLS and live cancellation/failed-send recovery remain unverified.
+KPIpedia's reference-style citation arrived in the raw M365 announcement, but did not render as
+a clickable citation; its source footer and explanation did render.
+
+To run the live golden set:
 
 ```powershell
 $env:Foundry__ProjectEndpoint = "https://<resource>.services.ai.azure.com/api/projects/<project>"
@@ -185,8 +281,11 @@ az login
 dotnet test --filter "FullyQualifiedName~Routing"
 ```
 
-Verified at **54/54** against the live model after the port, including the prompt change — which
-is the evidence that routing behaviour survived the refactor rather than merely compiling.
+The current native routing golden set passed **38/38** cases against the live model, plus **19**
+annotation/golden-set contract checks. Testing caught and corrected a headcount status question
+being expanded into an unasked trend analysis; the correction is in the tool annotations, not a
+tool-selection switch. These tests exercise routing, not delegated finance tools or channel UI.
+The earlier **54/54** routing result belongs to the historical pre-simplification test set.
 
 ## Publishing to Teams and Microsoft 365 Copilot
 
@@ -254,46 +353,21 @@ Stack-trace line numbers are the other tell, and they are more reliable than the
 frame reports the real await site, so a line that no longer matches the source means the running
 assembly is older than the source — not that the fix was wrong.
 
-### A streamed answer is lost on Microsoft 365 Copilot unless delivery is verified
+### One ordinary-message delivery path
 
-The proactive answer is delivered as the stream's final message, so it replaces the progress line
-instead of appearing beneath a status that never resolves. On **Microsoft 365 Copilot the stream is
-not rendered**, and the failure is silent: the user gets the acknowledgement and nothing else, no
-exception is thrown, and the turn is recorded as completed.
+The channel sends an immediate ordinary acknowledgement, occasional ordinary progress messages,
+and one ordinary final answer. It no longer starts a stream, intercepts stream frames, or falls
+back between streaming and non-streaming presentation. Progress stops before the final send.
+The tradeoff is deliberate: status messages remain in the conversation instead of being replaced
+in place.
 
-Measured on a real Copilot turn, by status code on the Bot Connector:
+The earlier implementation needed stream-specific fallbacks because Microsoft 365 Copilot
+accepted later streamed frames without rendering them, including the final answer. Ordinary
+message activities were observed to work on both surfaces. That history is why the feature was
+removed rather than merely deleting its delivery safeguards.
 
-| Activity | Result | Rendered |
-|---|---|---|
-| Acknowledgement (ordinary message) | `201` + resource id | yes |
-| First streamed frame | `201` + resource id | yes |
-| Second streamed frame | `202`, no id | **no** |
-| **Streamed final answer** | `202`, no id | **no** |
-| Answer re-sent as ordinary message | `201` + resource id | yes |
-
-Copilot creates a resource for the *first* streamed frame and accepts-and-discards every later one.
-Teams creates all of them. Ordinary message activities are created on both surfaces, which is why
-the acknowledgement always arrives and only the streamed answer disappears.
-
-So the channel checks whether the **final message specifically** produced a resource, reading the
-`ResourceResponse` the channel returned for it via `ITurnContext.OnSendActivities`. If it did not,
-the answer is re-sent as an ordinary message. The same fallback covers `NotStarted`, which is what
-ending a stream returns when a fast tool answers before the first update is flushed.
-
-> ⚠ **Do not simplify this to "does the stream have an id".** That was the first attempt and it is
-> wrong: the id is assigned from the first frame, which Copilot *does* create, so the stream has an
-> id while the answer is still discarded. The streaming API reports that it ended the stream, not
-> whether the channel kept anything, and it swallows the response of its own final send — so
-> `OnSendActivities` is the only place the truth is available.
-
-The same signal drives progress. Once a streamed frame is seen to be discarded, later progress
-nudges switch to ordinary messages, so a one-to-three-minute turn does not go visibly silent after
-the first update.
-
-`DeliveredInStream=False` in the `Turn progress finished` log line means the answer fallback was
-used. Pinned by `AnswerIsResentWhenTheChannelDiscardsTheStreamedFinalMessage`,
-`AnswerIsNotResentWhenTheChannelRendersTheStreamedFinalMessage` and
-`ProgressSwitchesToMessagesOnceStreamedFramesAreDiscarded`.
+After deploying this local change, verify a fast statement, a slow KPI/analysis turn, and
+cancellation on both Teams and Microsoft 365 Copilot. Local tests do not prove channel rendering.
 
 ### `azd deploy` is content-addressed
 

@@ -145,12 +145,138 @@ available line is the lower version number; the higher one is beta. This is easy
 
 These were argued through and should not be quietly reversed.
 
-**The model routes; it never writes the answer.** Tool output is returned to the user verbatim. This
+**The model selects tools; it never rewrites their answers.** Tool output is returned to the user verbatim. This
 is not a style preference. On a real measured turn, a sourced answer of about 2,800 characters —
 with a summary table and a citation — came back from the model at about 1,100 characters, as flat
 prose with the citation gone, *while the model was explicitly instructed to return it verbatim*.
 Prompt wording cannot guarantee fidelity, so fidelity is enforced in code. A paraphrased figure is
 a wrong figure.
+
+**Native function calling is compatible with verbatim output.** The earlier implementation used
+a custom structured route object and rendered tool descriptions into the prompt. The local code
+now supplies native function schemas instead. The host executes the selected call and returns
+the tool response without a model synthesis pass. The rewrite that removed citations was caused
+by that extra generation pass, not by function calling. Conversation history closes each
+function call with a content-free result marker, never the permissioned answer. This code change
+does not itself redeploy the hosted agent; earlier live verification below describes the
+previous deployed build.
+
+Annotated methods now drive both native declarations and SDK invocation. The host uses
+`AIFunctionFactory.Create` and `AIFunction.InvokeAsync` to bind arguments rather than a tool-name
+switch or a route DTO. Only the selected tool is constructed with the current caller's identity.
+Result marshaling preserves the original string rather than JSON-serializing it. Selection uses
+the SDK's `AgentResponse` and `FunctionCallContent` directly; `ValidateToolCall` in the agent
+retains the strict pre-execution checks without a separate selection-result class.
+
+Before the broader simplification, the native implementation passed 94 targeted offline tests, including SDK argument/default
+binding, cancellation, caller isolation, Responses wire encoding, verbatim output, per-session
+history round trips, rejected calls, and legacy-session migration.
+The live golden-set evaluation now uses that same native selection path, but was skipped locally
+because the Foundry endpoint and model environment variables were not configured.
+
+### Native-function simplification (15 September 2026)
+
+- Removed the unused answer-capture class, write-only last-tool state, no-op route callback and
+  obsolete Fabric thread field. Tools return their strings directly.
+- The agent has a typed Foundry session store. Existing keys and old type/value envelopes remain
+  readable without loading assembly-qualified CLR types. Channel state is owned by the channel.
+- The channel references only a dependency-free identity project, nested inside the agent's
+  single-directory upload. It no longer references the hosted-agent executable.
+- History now obeys its configured message cap, dropping complete turns rather than splitting
+  native calls from their result markers.
+- Unconfigured SQL produces an explicit configuration message, not a fabricated empty statement.
+- Fabric MCP protocol handling moves to the official minimal client SDK.
+- Progress and final answers use ordinary messages only. Streaming presentation is intentionally
+  removed, not retained without its necessary fallbacks.
+- One channel turn record owns pending, answer-ready and delivered state. Cached answers protect
+  retries from repeating completed finance calls. A crash after an external send but before the
+  delivery write can still duplicate a message.
+
+Local verification: **222 targeted offline tests passed, zero failed or skipped**. This includes
+missing message IDs, cached-answer retries, in-flight progress completing before the final
+message, legacy state migration, delegated caller isolation, MCP cleanup failures, and finance
+reference values. Both hosts built and published. An isolated agent upload passed readiness
+and missing-assertion probes; the channel publish contains Identity but no hosted-agent runtime
+or MCP dependency. Temporary publish and duplicate test-project artifacts were removed.
+
+VS Code still displayed cached duplicate assembly-attribute diagnostics after the project
+boundary change. An agent rebuild passed with zero warnings/errors, and design-time MSBuild
+evaluation excludes all nested Identity sources and generated files. Reload the VS Code window
+to refresh its project model; do not edit generated assembly attributes.
+
+Deployment on 15 September 2026:
+
+| Component | Verified outcome |
+| --- | --- |
+| Fabric `capfabricdaweus3` / `rg-fabric-da` | Resumed at 11:17 +02:00; Active on unchanged F2. Billing is running. |
+| Foundry `zavafinance` / `prj-fdr-swc` | Version 11 active; new-session logs confirm `2026-09-15.2-native-routing`. |
+| Functions `app-zavafin-xjm5mipto7f22` | ZIP deployment `bde00a72-6465-475a-8a4b-3fd3a46d8d1e` succeeded; four functions indexed, health 200. |
+| Channel dependencies | Startup logs confirm Durable Task connected using managed identity. |
+| Authentication checks | Channel rejects an unsigned request with 401; agent refuses missing and wrong-audience user assertions. |
+| Live routing | 38/38 native golden-set cases passed against `gpt-4.1-mini`, plus 19 annotation/golden-set contract checks. |
+
+The first routing run exposed one misroute: "How are we doing on headcount in APAC this year?"
+was expanded into an unasked trend comparison. The statement and analysis annotations now
+distinguish a single-KPI status lookup from requested analysis and preserve the question's scope.
+All 57 checks passed before the correction was deployed as version 11.
+
+**Signed-in Microsoft 365 verification resumed and found an upstream accuracy blocker.**
+The user completed sign-in, resolving the earlier password-page blocker. Testing used `reset`
+and a fresh conversation from 11:40 to 11:50 +02:00 on 15 September:
+
+| Prompt/check | Observed result |
+| --- | --- |
+| `What is gross margin?` | KPIpedia returned the full definition, calculation, non-additive aggregation caveat and source footer. |
+| `Now show me the figure for EMEA in November 2025.` | Inherited Gross Margin and returned **42.52%**, prior month **43.21%**, change **0.69 pp down**. |
+| `And for Q4 2025?` | Inherited KPI and geography; returned **42.67%**, matching the component-derived reference rather than the incorrect average **42.68%**. |
+| `Show closing headcount for EMEA in Q4 2025.` | Returned **3,247 FTE**, matching the closing-month reference. |
+| Explain the October-to-November EMEA gross-margin decline and department drivers | MCP completed and the full answer rendered, but the answer used gross revenue as denominator: **39.56% -> 38.86%**, rather than **43.21% -> 42.52%**. **Accuracy failed.** |
+| Repeat the analysis with the explicit Net Revenue/COGS formula | Correct source totals and **43.21% -> 42.52%** appeared, but the answer called that **-1.21 pp**, not **-0.69 pp**. **Accuracy still failed.** |
+
+The normal analysis used November gross profit **36,411,157.22** over gross revenue
+**93,701,276.73**. The correct denominator is net revenue **85,639,562.37**. The diagnostic
+request explicitly supplied `Net Revenue = Gross Revenue - Revenue Deductions` and
+`Gross Margin % = (Net Revenue - COGS) / Net Revenue * 100`; this was a test, not a persistent
+fix. Do not label the analysis correct just because MCP, routing and delivery succeeded.
+
+Backend evidence:
+- Hosted session `4f39d51c40ede9b55df7754dcfa0213a816ae431779e1255b966580709acb75`
+  started version **11**, build `2026-09-15.2-native-routing`.
+- Logs show native selection of `get_kpi_info`, `get_statement` and `explore_finance`,
+  successful delegated downstream calls, SQL rows and persisted agent history.
+- Six finance turns completed through the ordinary-message path. Each has a
+  `Turn progress finished` trace and completed Durable orchestration. That trace is emitted
+  after a nonempty send response ID and successful Delivered persistence.
+- Browser checks found one final source-bearing answer per finance prompt. Acknowledgements
+  and the 15/90-second progress messages appeared before the relevant final, not after it.
+  Reloading the conversation retained all six final answers, including the exact SQL figures.
+- The first analysis returned 2,188 downstream characters and 2,243 after the source footer;
+  the diagnostic final was 4,813 characters. These were real answers, not transport fallbacks.
+- The M365 conversation is `dafe5a86-674b-4d53-a15d-6740ddf118cd`; its hosted session was
+  left active.
+
+KPIpedia's raw accessible announcement included its SharePoint reference-style citation.
+M365 rendered the explanation and source footer, but not a visible clickable citation.
+Both `teams.microsoft.com/v2` and `teams.cloud.microsoft` redirected to the retired-client
+error before the Teams app opened. Teams is therefore **not verified**. Two-user RLS,
+live cancellation and failed-send recovery were not exercised; the offline regression tests
+remain the evidence for the latter two.
+
+Azure CLI's bot-audience consent limitation remains irrelevant to the successful browser path.
+No authentication, consent, storage network rules, Fabric agent configuration or SKU was changed
+to make these tests pass. All changes remain uncommitted and unpushed. The historical results
+below remain separate evidence.
+
+**Follow-up send check (15 September 2026).** After the reported "Failed to send" messages,
+the bot registration, generated app manifest and messaging endpoint matched, the Teams channel
+was enabled, and the Functions endpoint remained healthy. No message requests appeared in the
+09:55-10:08 UTC telemetry window; health requests continued to arrive. A fresh signed-in M365
+"What is net revenue?" control then returned a full KPIpedia answer: ingress at 10:09:25 UTC
+returned HTTP 200 in 1.09 seconds, and final delivery completed at 10:09:54 UTC
+(operation `a11dc8ab4c6057c53bab036a9a5c5461`). The user subsequently confirmed "all works."
+The reported send issue is therefore closed on user confirmation, without a code, configuration
+or permission change and without an established root cause. This does not supersede the
+separate Fabric calculation failures above or constitute an automated Teams acceptance test.
 
 **Tool-derived replies stay out of stored history.** When they were stored, the model began reciting
 the previous answer instead of calling the tool again — observed as a turn that called nothing at
@@ -180,7 +306,7 @@ of what forced that design.
 
 ---
 
-## Current state
+## Historical deployed build (before the native-function and simplification changes)
 
 Both halves are deployed. All three capabilities have been verified end to end in Teams against
 ground truth computed independently from the source data — the KPI explanation returned verbatim,
@@ -188,7 +314,7 @@ the figures exact to the cent, and the causal analysis exact to the percentage p
 evaluation passes fully against the live model after the split, which is the evidence that routing
 behaviour survived the port rather than merely compiling.
 
-The most recent change is the progress and delivery experience. It uses informative streaming updates
+That deployed build's progress and delivery experience uses informative streaming updates
 where the channel supports them, falls back to typing indicators and nudge messages where it does
 not, and verifies that the answer's own activity actually produced a resource before considering the
 turn delivered.
@@ -208,28 +334,35 @@ decision out as it happens, which enters the churn-prone part of the streaming A
 
 ## What is open
 
-**Verify the progress experience on Teams.** Microsoft 365 Copilot is done — verified on 14
-September with a signed-in turn, both the KPI definition and the causal analysis arriving in full
-via the ordinary-message fallback. Teams takes the streaming path and has not been re-tested since
-the change; it is the branch that was already working, so this is a confirmation rather than an
-investigation.
+**Correct Fabric analysis accuracy before accepting the finance experience end to end.**
+The 15 September signed-in M365 tests passed KPIpedia, exact SQL figures, follow-up context and
+ordinary delivery, but both analysis questions failed numerical acceptance. Align the published
+Fabric data agent with KPIpedia and the deterministic SQL definitions: gross margin uses
+**net revenue**, and percentage-point movements must be calculated from the underlying
+components, not guessed in the narrative. Put the KPI-specific calculation rules and example
+queries in the upstream
+[data source configuration](https://learn.microsoft.com/fabric/data-science/data-agent-configurations#data-source-instructions),
+then republish and retest the original question without supplying its formula. Do not mask this
+by rewriting permissioned answers or adding another model synthesis pass in the orchestrator.
 
-Send `reset` first if reusing an existing conversation, then ask a question and read the result off
-the `Turn progress finished` line in Application Insights:
+Also complete Teams testing in a supported authenticated client, two-user RLS isolation,
+M365 citation-link rendering, and controlled live cancellation/failed-send recovery. Do not
+inject send failures into the shared deployment without an isolated test plan. For recovery,
+confirm that retry reuses the cached answer rather than repeating downstream finance calls.
+
+Use the channel's `Turn progress finished` trace alongside the actual rendered conversation:
 
 ```kusto
 AppTraces
 | where Message has "Turn progress finished"
+| where isnotempty(OperationId)
 | project TimeGenerated, Message
 | order by TimeGenerated desc
 ```
 
-`Streaming=True DeliveredInStream=True` is the streaming path working — expected on Teams.
-`DeliveredInStream=False` means the channel did not render the streamed answer and it was re-sent as
-an ordinary message; that is the Copilot fallback doing its job, and it is accompanied by a warning
-naming the reason. `Streaming=False` is the typing-and-nudge path. The failure this guards against is
-an acknowledgement followed by silence, so the thing to confirm on each surface is simply that the
-answer arrives exactly once.
+`Streaming` and `DeliveredInStream` belong to the old implementation and are no longer current
+acceptance criteria. The new implementation has one ordinary-message path. Local transport and
+lifecycle tests do not substitute for signed-in channel rendering or permission checks.
 
 Note that the tenant has been cleaned: the stale **Finance Orchestrator** agent and the
 **MSC Dispatcher** project it was backed by have been removed — resource group
@@ -248,11 +381,11 @@ yet. It must be run with view-only accounts, because row-level security does not
 edit-level roles — a run with the wrong account type returns unfiltered data for both users and
 passes while proving nothing.
 
-**Prompt injection defences are not in place.** Answers are grounded in documents that users can
-edit, and those answers enter the model's context on later turns while the agent acts with the
-user's permissions. Anyone who can edit a source document can place instructions in it. Filtering
-is needed at two points — inbound user text, and any tool response before it enters history — and a
-shield hit needs its own user-facing message.
+**Prompt injection defence still needs a dedicated review.** Source documents and inbound user
+text remain untrusted. Tool answers no longer enter this model's context; native-call history
+uses content-free markers instead. That boundary prevents this host from following instructions
+embedded in returned answers, but it does not replace protections within the downstream agents
+or validation of inbound requests.
 
 **One knowledge source is mis-scoped.** The configured source points at a single file, but answers
 cite unrelated third-party content from the same location. Deep file-level paths do not scope

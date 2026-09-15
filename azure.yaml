@@ -8,9 +8,8 @@ name: zavafinance
 services:
   zavafinance:
     host: azure.ai.agent
-    # Code deploy. The packager uploads one project directory, which is why the routing agent,
-    # the three tools and the finance logic live inside this project rather than in a
-    # referenced library: a project reference is dropped and the remote build fails.
+    # Code deploy uploads this directory. The shared identity project is nested inside it,
+    # so the source package contains every project needed by the remote build.
     project: src/ZavaFinance.Agent
     language: csharp
     codeConfiguration:

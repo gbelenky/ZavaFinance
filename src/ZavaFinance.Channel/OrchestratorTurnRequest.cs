@@ -24,8 +24,8 @@ public sealed class OrchestratorTurnRequest
     public required string ChannelId { get; init; }
 
     /// <summary>
-    /// Deterministic for this turn. Guards the non-idempotent activities against
-    /// at-least-once replay.
+    /// Retained for compatibility with in-flight Durable Task payloads. Delivery state now
+    /// uses SessionKey and TurnId directly, including migration of the old completion key.
     /// </summary>
     public required string IdempotencyKey { get; init; }
 }

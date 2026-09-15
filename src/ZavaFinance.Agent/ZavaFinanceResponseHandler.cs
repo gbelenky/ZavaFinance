@@ -111,10 +111,9 @@ public sealed class ZavaFinanceResponseHandler : ResponseHandler
                 tokenProvider,
                 sessionKey,
                 question,
-                onRouteSelected: (_, _) => Task.CompletedTask,
                 cancellationToken);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Turn failed.");
 

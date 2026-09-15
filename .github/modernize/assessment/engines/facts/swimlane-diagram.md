@@ -24,19 +24,20 @@ flowchart LR
         sSchedule["8. Schedule durable turn"]
         sResume["10. Resume conversation"]
         sCallAgent["11. Call Foundry Responses API"]
-        sCache["19. Cache answer and mark complete"]
+        sCache["19. Cache answer as answer-ready"]
         sSend["20. Send proactive answer"]
+        sDelivered["23. Record delivered"]
     end
     subgraph SwimDurable["Durable Task"]
         sStart["9. Start retryable activity"]
-        sComplete["23. Complete orchestration"]
+        sComplete["24. Complete orchestration"]
     end
     subgraph SwimFoundry["Foundry Hosted Agent"]
         sGateway["12. Authorize channel workload"]
         sValidate["13. Validate user assertion"]
         sLoad["14. Load isolated session"]
-        sRoute["15. Select one finance tool"]
-        sPersist["18. Persist routing state"]
+        sRoute["15. Native function selection and validation"]
+        sPersist["18. Save call history without tool answer"]
     end
     subgraph SwimFinance["Delegated Finance Service"]
         sObo["16. Exchange token on behalf of user"]
@@ -57,14 +58,15 @@ flowchart LR
     sGateway -->|"forward client header"| sValidate
     sValidate -->|"trusted tenant and user"| sLoad
     sLoad -->|"question and history"| sRoute
-    sRoute -->|"selected route"| sObo
+    sRoute -->|"validated function call"| sObo
     sObo -->|"delegated access token"| sTool
     sTool -->|"verbatim result"| sPersist
     sPersist -->|"response body"| sCache
-    sCache -->|"idempotent delivery"| sSend
-    sSend -->|"proactive activity"| sBotFinal
+    sCache -->|"reuse cached answer on retry"| sSend
+    sSend -->|"ordinary message"| sBotFinal
     sBotFinal -->|"final response"| sUserAnswer
-    sCache -->|"success marker"| sComplete
+    sBotFinal -->|"send confirmed"| sDelivered
+    sDelivered -->|"success"| sComplete
 ```
 
 ## Direct Responses API Turn
@@ -85,8 +87,8 @@ flowchart LR
     subgraph DirectAgentLane["ZavaFinance Hosted Agent"]
         dValidate["4. Validate user assertion"]
         dSession["5. Derive and load isolated session"]
-        dRoute["6. Select one finance tool"]
-        dSave["8. Save routing state"]
+        dRoute["6. Native function selection and validation"]
+        dSave["8. Save call history without tool answer"]
     end
     subgraph DirectFinanceLane["Delegated Finance Service"]
         dExecute["7. Execute as signed-in user"]
@@ -101,3 +103,11 @@ flowchart LR
     dExecute -->|"verbatim result"| dSave
     dSave -->|"response"| dReceive
 ```
+
+Tool answers go directly to the client without another model generation step. Only content-free
+function-result markers enter the model's conversation history, keeping subsequent calls valid
+without retaining permissioned finance responses.
+
+Channel acknowledgement, progress and final answers use ordinary messages, not in-place
+streaming. Delivered records suppress later retries, but a crash between sending and persisting
+delivery can still duplicate an external message.

@@ -17,12 +17,7 @@ public interface ICopilotStudioClientFactory
 }
 
 /// <summary>
-/// <para>
-/// <see cref="CopilotClient"/> accepts an arbitrary <c>Func&lt;string, Task&lt;string&gt;&gt;</c>
-/// as its token source, so it carries no dependency on Bot Framework or on a turn context. That
-/// is what lets the same subagent client serve the Teams / Microsoft 365 Copilot channel and the
-/// Foundry hosted agent, changing only which <see cref="IDownstreamTokenProvider"/> is supplied.
-/// </para>
+/// Binds the Copilot Studio client to the hosted agent's caller-specific delegated token source.
 /// </summary>
 public sealed class CopilotStudioClientFactory : ICopilotStudioClientFactory
 {
