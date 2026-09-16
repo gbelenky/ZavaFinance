@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Agents.Storage;
+using ZavaFinance.Contracts;
 
 namespace ZavaFinance.Channel;
 
@@ -25,6 +26,8 @@ public sealed class TurnDeliveryRecord : IStoreItem
     public TurnDeliveryStatus Status { get; set; }
     public string? Question { get; set; }
     public string? Answer { get; set; }
+    public ClarificationSubmission? Submission { get; set; }
+    public string? CardJson { get; set; }
     public string? ETag { get; set; }
 }
 
@@ -61,8 +64,10 @@ public sealed class ChannelSessionStore(IStorage storage)
     /// or revive a delivered turn. The return value controls the one initial acknowledgement.
     /// </summary>
     public async Task<bool> CreateTurnAsync(
-        string sessionKey, string turnId, string question, CancellationToken ct)
+        string sessionKey, string turnId, string question, CancellationToken ct,
+        ClarificationSubmission? submission = null)
     {
+        if (submission is not null) { FinanceReplyProtocol.Validate(submission); }
         for (int attempt = 0; ; attempt++)
         {
             if (await ReadTurnAsync(sessionKey, turnId, ct) is not null)
@@ -75,7 +80,8 @@ public sealed class ChannelSessionStore(IStorage storage)
                 await WriteTurnAsync(sessionKey, turnId, new TurnDeliveryRecord
                 {
                     Status = TurnDeliveryStatus.Pending,
-                    Question = question
+                    Question = question,
+                    Submission = submission
                 }, ct);
                 return true;
             }
@@ -101,6 +107,8 @@ public sealed class ChannelSessionStore(IStorage storage)
                 turn.Status = TurnDeliveryStatus.Delivered;
                 turn.Question = null;
                 turn.Answer = null;
+                turn.Submission = null;
+                turn.CardJson = null;
                 try
                 {
                     await WriteTurnAsync(sessionKey, turnId, turn, ct);
@@ -126,6 +134,10 @@ public sealed class ChannelSessionStore(IStorage storage)
                 {
                     throw new InvalidDataException("Channel delivery record is invalid.");
                 }
+                if (turn.Status == TurnDeliveryStatus.Pending && turn.Submission is not null)
+                {
+                    FinanceReplyProtocol.Validate(turn.Submission);
+                }
             }
 
             return turn;
@@ -133,7 +145,8 @@ public sealed class ChannelSessionStore(IStorage storage)
     }
 
     public Task SaveAnswerAsync(
-        string sessionKey, string turnId, TurnDeliveryRecord turn, string answer, CancellationToken ct)
+        string sessionKey, string turnId, TurnDeliveryRecord turn, string answer, CancellationToken ct,
+        string? cardJson = null)
     {
         if (turn.Status != TurnDeliveryStatus.Pending || string.IsNullOrWhiteSpace(answer))
         {
@@ -144,6 +157,7 @@ public sealed class ChannelSessionStore(IStorage storage)
         {
             Status = TurnDeliveryStatus.AnswerReady,
             Answer = answer,
+            CardJson = cardJson,
             ETag = turn.ETag
         }, ct);
     }

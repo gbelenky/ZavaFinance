@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Azure.Core;
 using Microsoft.Extensions.Logging;
+using ZavaFinance.Contracts;
 
 namespace ZavaFinance.Channel;
 
@@ -17,11 +18,12 @@ public interface IHostedAgentClient
     /// </summary>
     Task<string> CreateConversationAsync(CancellationToken cancellationToken);
 
-    Task<string> AskAsync(
+    Task<FinanceReply> AskAsync(
         string question,
         string userAssertion,
         string? conversationId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        ClarificationSubmission? submission = null);
 }
 
 /// <summary>
@@ -110,11 +112,12 @@ public sealed class FoundryHostedAgentClient : IHostedAgentClient
             : string.Empty;
     }
 
-    public async Task<string> AskAsync(
+    public async Task<FinanceReply> AskAsync(
         string question,
         string userAssertion,
         string? conversationId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ClarificationSubmission? submission = null)
     {
         AccessToken workloadToken = await _credential.GetTokenAsync(
             new TokenRequestContext(FoundryScopes), cancellationToken);
@@ -122,6 +125,11 @@ public sealed class FoundryHostedAgentClient : IHostedAgentClient
         using var request = new HttpRequestMessage(HttpMethod.Post, _options.ResponsesEndpoint);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", workloadToken.Token);
         request.Headers.Add(_options.UserTokenHeader, userAssertion);
+        request.Headers.Add(FinanceReplyProtocol.ReplyFormatHeader, FinanceReplyProtocol.ReplyFormat);
+        if (submission is not null)
+        {
+            request.Headers.Add(FinanceReplyProtocol.ClarificationHeader, FinanceReplyProtocol.EncodeSubmission(submission));
+        }
 
         // conversation is omitted rather than sent empty: the endpoint validates the identifier
         // format and rejects anything that is not a platform conv_ id.
@@ -165,7 +173,19 @@ public sealed class FoundryHostedAgentClient : IHostedAgentClient
             response.EnsureSuccessStatusCode();
         }
 
-        return ExtractOutputText(body);
+        string output = ExtractOutputText(body);
+        if (output.AsSpan().TrimStart().StartsWith("{", StringComparison.Ordinal))
+        {
+            return FinanceReplyProtocol.DeserializeReply(output);
+        }
+        if (submission is not null)
+        {
+            throw new InvalidDataException("The hosted agent did not acknowledge the clarification reply protocol.");
+        }
+        // Older hosted deployments return ordinary text while the negotiated protocol rolls out.
+        var reply = new FinanceReply(output);
+        FinanceReplyProtocol.Validate(reply);
+        return reply;
     }
 
     /// <summary>

@@ -62,12 +62,19 @@ public static class FinancePeriodParser
 
         string value = text.Trim().ToLowerInvariant();
 
-        return ParseRelative(value, today)
-            ?? ParseQuarter(value)
-            ?? ParseMonthRange(value)
-            ?? ParseSingleMonth(value)
-            ?? ParseHalf(value)
-            ?? ParseYear(value);
+        try
+        {
+            return ParseRelative(value, today)
+                ?? ParseQuarter(value)
+                ?? ParseMonthRange(value)
+                ?? ParseSingleMonth(value)
+                ?? ParseHalf(value)
+                ?? ParseYear(value);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     private static FinancePeriod? ParseRelative(string value, DateOnly today)
@@ -114,7 +121,7 @@ public static class FinancePeriodParser
     {
         Match m = Regex.Match(
             value,
-            @"\bq([1-4])\s*(?:of\s*)?(?:fy)?\s*(\d{4})\b",
+            @"\Aq([1-4])\s*(?:of\s*)?(?:fy)?\s*(\d{4})\z",
             RegexOptions.None,
             TimeSpan.FromSeconds(1));
 
@@ -122,7 +129,7 @@ public static class FinancePeriodParser
         {
             m = Regex.Match(
                 value,
-                @"\b(\d{4})\s*q([1-4])\b",
+                @"\A(\d{4})\s*q([1-4])\z",
                 RegexOptions.None,
                 TimeSpan.FromSeconds(1));
 
@@ -146,7 +153,7 @@ public static class FinancePeriodParser
     private static FinancePeriod? ParseHalf(string value)
     {
         Match m = Regex.Match(
-            value, @"\bh([12])\s*(?:fy)?\s*(\d{4})\b", RegexOptions.None, TimeSpan.FromSeconds(1));
+            value, @"\Ah([12])\s*(?:fy)?\s*(\d{4})\z", RegexOptions.None, TimeSpan.FromSeconds(1));
 
         if (!m.Success)
         {
@@ -167,7 +174,7 @@ public static class FinancePeriodParser
     {
         Match m = Regex.Match(
             value,
-            @"\b([a-z]+)\s*(\d{4})?\s*(?:to|through|thru|until|-|–|—)\s*([a-z]+)\s*(\d{4})\b",
+            @"\A([a-z]+)\s*(\d{4})?\s*(?:to|through|thru|until|-|–|—)\s*([a-z]+)\s*(\d{4})\z",
             RegexOptions.None,
             TimeSpan.FromSeconds(1));
 
@@ -200,7 +207,7 @@ public static class FinancePeriodParser
     private static FinancePeriod? ParseSingleMonth(string value)
     {
         Match m = Regex.Match(
-            value, @"\b([a-z]+)\s+(\d{4})\b", RegexOptions.None, TimeSpan.FromSeconds(1));
+            value, @"\A([a-z]+)\s+(\d{4})\z", RegexOptions.None, TimeSpan.FromSeconds(1));
 
         if (!m.Success)
         {
@@ -222,7 +229,7 @@ public static class FinancePeriodParser
     private static FinancePeriod? ParseYear(string value)
     {
         Match m = Regex.Match(
-            value, @"\b(?:fy)?\s*(\d{4})\b", RegexOptions.None, TimeSpan.FromSeconds(1));
+            value, @"\A(?:fy)?\s*(\d{4})\z", RegexOptions.None, TimeSpan.FromSeconds(1));
 
         return m.Success
             ? Year(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture))

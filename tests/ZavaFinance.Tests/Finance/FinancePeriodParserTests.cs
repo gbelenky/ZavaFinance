@@ -105,6 +105,18 @@ public sealed class FinancePeriodParserTests
     [InlineData("   ")]
     [InlineData("sometime soon")]
     [InlineData("the good old days")]
+    [InlineData("Q5 2026")]
+    [InlineData("H3 2026")]
+    [InlineData("January to Smarch 2026")]
+    [InlineData("Smarch to March 2026")]
+    [InlineData("March to January 2026")]
+    [InlineData("Q3 2026 excluding August")]
+    [InlineData("Q1 2026 and Q3 2026")]
+    [InlineData("November 2025 to garbage 2026")]
+    [InlineData("2026 next summer")]
+    [InlineData("0000")]
+    [InlineData("9999")]
+    [InlineData("Q1 0000")]
     public void RejectsUnparseableText(string text)
     {
         // The router is told never to invent arguments, so an unparseable period becomes a

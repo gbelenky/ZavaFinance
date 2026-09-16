@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 
 using System.Data;
+using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using ZavaFinance.Core.Configuration;
@@ -20,7 +21,7 @@ namespace ZavaFinance.Core.Finance;
 /// <see cref="KpiCalculator"/>, so a summed or averaged ratio is not expressible here.
 /// </para>
 /// </summary>
-public sealed class FabricStatementQuery : IStatementQuery
+public sealed class FabricStatementQuery : IStatementQuery, IResolverCatalog
 {
     private readonly FabricOptions _options;
     private readonly Func<CancellationToken, Task<string>> _tokenProvider;
@@ -36,60 +37,79 @@ public sealed class FabricStatementQuery : IStatementQuery
         _logger = logger;
     }
 
-    public async Task<OrganizationScope?> ResolveOrganizationAsync(
-        string org, CancellationToken cancellationToken)
+    public async Task<ResolverRelease> GetReleaseAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(org))
-        {
-            return null;
-        }
-
-        if (IsWholeCompany(org))
-        {
-            return OrganizationScope.Whole;
-        }
-
-        const string Sql =
-            """
-            SELECT TOP (1) kind, code, name FROM (
-                SELECT 'region' AS kind, region_code AS code, region_name AS name,
-                       CASE WHEN LOWER(region_code) = @needle THEN 0
-                            WHEN LOWER(region_name) = @needle THEN 1
-                            ELSE 2 END AS rank
-                FROM dim_region
-                WHERE LOWER(region_code) = @needle
-                   OR LOWER(region_name) = @needle
-                   OR LOWER(region_name) LIKE @like
-                UNION ALL
-                SELECT 'department', department_code, department_name,
-                       CASE WHEN LOWER(department_code) = @needle THEN 0
-                            WHEN LOWER(department_name) = @needle THEN 1
-                            ELSE 3 END
-                FROM dim_department
-                WHERE LOWER(department_code) = @needle
-                   OR LOWER(department_name) = @needle
-                   OR LOWER(department_name) LIKE @like
-            ) matches
-            ORDER BY rank, LEN(name)
-            """;
-
-        string needle = org.Trim().ToLowerInvariant();
-
         await using SqlConnection connection = await OpenAsync(cancellationToken);
-        await using var command = new SqlCommand(Sql, connection)
+        await using var command = new SqlCommand(
+            "SELECT catalog_version, search_index, embedding_deployment, embedding_dimensions FROM dbo.resolver_release;",
+            connection)
         {
             CommandTimeout = (int)_options.SqlTimeout.TotalSeconds
         };
-
-        command.Parameters.Add("@needle", SqlDbType.NVarChar, 200).Value = needle;
-        command.Parameters.Add("@like", SqlDbType.NVarChar, 210).Value = $"%{needle}%";
-
         await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
-
-        return await reader.ReadAsync(cancellationToken)
-            ? new OrganizationScope(reader.GetString(0), reader.GetString(1), reader.GetString(2))
-            : null;
+        if (!await reader.ReadAsync(cancellationToken)
+            || Enumerable.Range(0, 4).Any(reader.IsDBNull))
+            throw new InvalidDataException("No published resolver catalogue.");
+        var release = new ResolverRelease(reader.GetString(0), reader.GetString(1),
+            reader.GetString(2), reader.GetInt32(3));
+        release.Validate();
+        if (await reader.ReadAsync(cancellationToken))
+            throw new InvalidDataException("Resolver release must contain exactly one version.");
+        return release;
     }
+
+    public async Task<ResolverCatalog> LoadCatalogAsync(CancellationToken cancellationToken)
+    {
+        ResolverRelease release = await GetReleaseAsync(cancellationToken);
+        string version = release.CatalogVersion;
+        await using SqlConnection connection = await OpenAsync(cancellationToken);
+        await using var command = new SqlCommand(CatalogSql, connection)
+        {
+            CommandTimeout = (int)_options.SqlTimeout.TotalSeconds
+        };
+        command.Parameters.Add("@version", SqlDbType.NVarChar, 64).Value = version;
+        var entities = new List<ResolverEntity>();
+        await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (entities.Count >= 20000)
+                throw new InvalidDataException("Resolver catalogue exceeds the supported size.");
+            entities.Add(new ResolverEntity(version, reader.GetString(0), reader.GetString(1),
+                reader.GetString(2), JsonSerializer.Deserialize<string[]>(reader.GetString(3)) ?? [],
+                Optional(reader, 4) ?? "", Optional(reader, 5), Optional(reader, 6) ?? "",
+                Optional(reader, 7), Optional(reader, 8), Optional(reader, 9), Optional(reader, 10),
+                reader.GetBoolean(11)));
+        }
+        if (entities.Select(entity => entity.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count() != entities.Count)
+            throw new InvalidDataException("Duplicate resolver catalogue IDs.");
+        if (release != await GetReleaseAsync(cancellationToken))
+            throw new CatalogChangedException();
+        return new ResolverCatalog(release, entities);
+    }
+
+    internal const string CatalogSql =
+        """
+        SELECT c.entity_id, c.entity_kind, c.canonical_name, c.aliases_json, c.definition,
+               c.parent_id, c.hierarchy_path, c.kpi_code, c.region_code, c.department_code,
+               c.department_group, c.is_reportable
+        FROM dbo.resolver_catalog c
+        WHERE c.catalog_version = @version
+          AND EXISTS (SELECT 1 FROM dbo.resolver_release r WHERE r.catalog_version = @version)
+          AND (
+            (c.entity_kind IN ('kpi', 'kpi_group')
+             AND EXISTS (SELECT 1 FROM fact_finance_monthly))
+            OR (c.entity_kind = 'org' AND EXISTS (
+                SELECT 1 FROM dbo.resolver_scope s
+                INNER JOIN fact_finance_monthly f
+                  ON f.region_code = s.region_code AND f.department_code = s.department_code
+                WHERE s.catalog_version = c.catalog_version AND s.node_id = c.entity_id
+            ))
+          )
+        ORDER BY c.entity_id;
+        """;
+
+    private static string? Optional(SqlDataReader reader, int index) =>
+        reader.IsDBNull(index) ? null : reader.GetString(index);
 
     public async Task<StatementResult> GetStatementAsync(
         KpiDefinition kpi,
@@ -97,6 +117,9 @@ public sealed class FabricStatementQuery : IStatementQuery
         FinancePeriod period,
         CancellationToken cancellationToken)
     {
+        if (organization.Release is null || organization.CatalogVersion != organization.Release.CatalogVersion
+            || organization.Release != await GetReleaseAsync(cancellationToken))
+            throw new CatalogChangedException();
         await using SqlConnection connection = await OpenAsync(cancellationToken);
 
         FinanceComponents current =
@@ -127,25 +150,23 @@ public sealed class FabricStatementQuery : IStatementQuery
             "USD");
     }
 
-    private async Task<FinanceComponents> LoadComponentsAsync(
-        SqlConnection connection,
-        OrganizationScope organization,
-        FinancePeriod period,
-        CancellationToken cancellationToken)
-    {
-        // Amounts are stored as positive magnitudes per component, so the KPI semantics are
-        // applied when the components are combined, never in the SUM itself.
-        const string Sql =
+    // Amounts are positive magnitudes; ratios are recomputed outside the query.
+    internal const string ComponentsSql =
             """
+            IF (SELECT COUNT(*) FROM dbo.resolver_release) <> 1
+               OR NOT EXISTS (SELECT 1 FROM dbo.resolver_release
+                   WHERE catalog_version = @version AND search_index = @searchIndex
+                     AND embedding_deployment = @embeddingDeployment AND embedding_dimensions = @embeddingDimensions)
+                THROW 51000, 'Resolver catalogue changed.', 1;
             DECLARE @closing date = DATEADD(month, -1, @end);
 
             WITH scoped AS (
                 SELECT f.kpi_component, f.amount_usd
                 FROM fact_finance_monthly f
                 WHERE f.month_start >= @start AND f.month_start < @end
-                  AND (@all = 1
-                       OR (@kind = 'region' AND f.region_code = @code)
-                       OR (@kind = 'department' AND f.department_code = @code))
+                  AND EXISTS (SELECT 1 FROM dbo.resolver_scope s
+                      WHERE s.catalog_version = @version AND s.node_id = @node
+                        AND s.region_code = f.region_code AND s.department_code = f.department_code)
             ),
             components AS (
                 SELECT
@@ -162,18 +183,18 @@ public sealed class FabricStatementQuery : IStatementQuery
                 FROM fact_kpi_monthly k
                 WHERE k.kpi_code = 'KPI-018'
                   AND k.month_start >= @start AND k.month_start < @end
-                  AND (@all = 1
-                       OR (@kind = 'region' AND k.region_code = @code)
-                       OR (@kind = 'department' AND k.department_code = @code))
+                  AND EXISTS (SELECT 1 FROM dbo.resolver_scope s
+                      WHERE s.catalog_version = @version AND s.node_id = @node
+                        AND s.region_code = k.region_code AND s.department_code = k.department_code)
             ),
             -- Headcount is semi-additive: summed across organizations, never across months.
             headcount AS (
                 SELECT SUM(h.headcount_fte) AS closing_headcount
                 FROM fact_headcount_monthly h
                 WHERE h.month_start = @closing
-                  AND (@all = 1
-                       OR (@kind = 'region' AND h.region_code = @code)
-                       OR (@kind = 'department' AND h.department_code = @code))
+                  AND EXISTS (SELECT 1 FROM dbo.resolver_scope s
+                      WHERE s.catalog_version = @version AND s.node_id = @node
+                        AND s.region_code = h.region_code AND s.department_code = h.department_code)
             ),
             -- Receivables are not stored, so DSO aggregates as a revenue-weighted average.
             dso AS (
@@ -189,9 +210,9 @@ public sealed class FabricStatementQuery : IStatementQuery
                  AND r.month_start = d.month_start
                 WHERE d.kpi_code = 'KPI-015'
                   AND d.month_start >= @start AND d.month_start < @end
-                  AND (@all = 1
-                       OR (@kind = 'region' AND d.region_code = @code)
-                       OR (@kind = 'department' AND d.department_code = @code))
+                  AND EXISTS (SELECT 1 FROM dbo.resolver_scope s
+                      WHERE s.catalog_version = @version AND s.node_id = @node
+                        AND s.region_code = d.region_code AND s.department_code = d.department_code)
             ),
             sply AS (
                 SELECT SUM(k.kpi_value) AS net_revenue_sply
@@ -199,9 +220,9 @@ public sealed class FabricStatementQuery : IStatementQuery
                 WHERE k.kpi_code = 'KPI-003'
                   AND k.month_start >= DATEADD(year, -1, @start)
                   AND k.month_start < DATEADD(year, -1, @end)
-                  AND (@all = 1
-                       OR (@kind = 'region' AND k.region_code = @code)
-                       OR (@kind = 'department' AND k.department_code = @code))
+                  AND EXISTS (SELECT 1 FROM dbo.resolver_scope s
+                      WHERE s.catalog_version = @version AND s.node_id = @node
+                        AND s.region_code = k.region_code AND s.department_code = k.department_code)
             )
             SELECT c.gross_revenue, c.revenue_deductions, c.cogs, c.opex, c.da, c.row_count,
                    b.budget_net_revenue, h.closing_headcount, d.dso_weighted, s.net_revenue_sply
@@ -212,51 +233,57 @@ public sealed class FabricStatementQuery : IStatementQuery
             CROSS JOIN sply s
             """;
 
-        await using var command = new SqlCommand(Sql, connection)
+    private async Task<FinanceComponents> LoadComponentsAsync(
+        SqlConnection connection,
+        OrganizationScope organization,
+        FinancePeriod period,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new SqlCommand(ComponentsSql, connection)
         {
             CommandTimeout = (int)_options.SqlTimeout.TotalSeconds
         };
 
-        bool all = organization.Kind == OrganizationScope.Company;
-
         command.Parameters.Add("@start", SqlDbType.Date).Value = period.Start.ToDateTime(TimeOnly.MinValue);
         command.Parameters.Add("@end", SqlDbType.Date).Value = period.End.ToDateTime(TimeOnly.MinValue);
-        command.Parameters.Add("@all", SqlDbType.Bit).Value = all;
-        command.Parameters.Add("@kind", SqlDbType.NVarChar, 20).Value = organization.Kind;
-        command.Parameters.Add("@code", SqlDbType.NVarChar, 50).Value = organization.Code;
+        command.Parameters.Add("@version", SqlDbType.NVarChar, 64).Value = organization.CatalogVersion;
+        command.Parameters.Add("@node", SqlDbType.NVarChar, 200).Value = organization.Code;
+        command.Parameters.Add("@searchIndex", SqlDbType.NVarChar, 128).Value = organization.Release!.SearchIndex;
+        command.Parameters.Add("@embeddingDeployment", SqlDbType.NVarChar, 64).Value = organization.Release.EmbeddingDeployment;
+        command.Parameters.Add("@embeddingDimensions", SqlDbType.Int).Value = organization.Release.EmbeddingDimensions;
 
-        await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
-
-        if (!await reader.ReadAsync(cancellationToken))
+        SqlDataReader reader;
+        try
         {
-            return new FinanceComponents { HasRows = false };
+            reader = await command.ExecuteReaderAsync(cancellationToken);
         }
-
-        return new FinanceComponents
+        catch (SqlException ex) when (ex.Number == 51000)
         {
-            GrossRevenue = Money(reader, 0),
-            RevenueDeductions = Money(reader, 1),
-            Cogs = Money(reader, 2),
-            OperatingExpenses = Money(reader, 3),
-            DepreciationAmortisation = Money(reader, 4),
-            HasRows = !reader.IsDBNull(5) && reader.GetInt32(5) > 0,
-            BudgetNetRevenue = Money(reader, 6),
-            ClosingHeadcount = reader.IsDBNull(7) ? 0 : (int)Convert.ToDecimal(reader.GetValue(7)),
-            DsoWeighted = Money(reader, 8),
-            NetRevenuePriorYear = reader.IsDBNull(9) ? null : Money(reader, 9)
-        };
+            throw new CatalogChangedException();
+        }
+        await using (reader)
+        {
+            if (!await reader.ReadAsync(cancellationToken))
+                return new FinanceComponents { HasRows = false };
+
+            return new FinanceComponents
+            {
+                GrossRevenue = Money(reader, 0),
+                RevenueDeductions = Money(reader, 1),
+                Cogs = Money(reader, 2),
+                OperatingExpenses = Money(reader, 3),
+                DepreciationAmortisation = Money(reader, 4),
+                HasRows = !reader.IsDBNull(5) && reader.GetInt32(5) > 0,
+                BudgetNetRevenue = Money(reader, 6),
+                ClosingHeadcount = reader.IsDBNull(7) ? 0 : (int)Convert.ToDecimal(reader.GetValue(7)),
+                DsoWeighted = Money(reader, 8),
+                NetRevenuePriorYear = reader.IsDBNull(9) ? null : Money(reader, 9)
+            };
+        }
     }
 
     private static decimal Money(SqlDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? 0m : Convert.ToDecimal(reader.GetValue(ordinal));
-
-    private static bool IsWholeCompany(string org)
-    {
-        string value = org.Trim().ToLowerInvariant();
-
-        return value is "zava" or "all" or "group" or "company" or "total"
-            or "worldwide" or "global" or "all regions" or "whole company";
-    }
 
     private async Task<SqlConnection> OpenAsync(CancellationToken cancellationToken)
     {

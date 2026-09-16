@@ -9,13 +9,15 @@
     <RootNamespace>ZavaFinance.Agent</RootNamespace>
     <AssemblyName>ZavaFinance.Agent</AssemblyName>
     <UserSecretsId>b14a3738-069b-4e3d-b050-bc42dd84afe4</UserSecretsId>
-    <DefaultItemExcludes>$(DefaultItemExcludes);Identity\bin\**;Identity\obj\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Identity\bin\**;Identity\obj\**;Contracts\bin\**;Contracts\obj\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <!-- Keep the shared identity project within the single-directory hosted-agent upload. -->
   <ItemGroup>
     <Compile Remove="Identity\**\*.cs" />
     <ProjectReference Include="Identity\ZavaFinance.Identity.csproj" />
+    <Compile Remove="Contracts\**\*.cs" />
+    <ProjectReference Include="Contracts\ZavaFinance.Contracts.csproj" />
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>ZavaFinance.Tests</_Parameter1>
     </AssemblyAttribute>

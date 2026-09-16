@@ -7,6 +7,7 @@ using Microsoft.Agents.Storage;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using ZavaFinance.Channel;
+using ZavaFinance.Contracts;
 using ZavaFinance.Core.Identity;
 using Xunit;
 
@@ -215,24 +216,40 @@ public sealed class ChannelDeliveryTests
         Assert.Equal(1, hosted.Calls);
     }
 
-    [Fact]
-    public async Task LegacyRecordsLoadWithoutTheirClrTypesAndKeepCachedAnswers()
+    [Theory]
+    [InlineData("legacy cached answer")]
+    [InlineData("1. North region\n2. South region\nReply with the number.")]
+    public async Task LegacyRecordsLoadWithoutTheirClrTypesAndKeepCachedAnswers(string answer)
     {
         var (store, storage, hosted, processor) = Create();
         storage.Seed("orchestrator/s", """
             {"$type":"ZavaFinance.Core.Agent.OrchestratorSessionState","$typeAssembly":"ZavaFinance.Agent",
              "hostedAgentConversationId":"conv_legacy","lastKpiName":"discard","agentSessionJson":"discard"}
             """);
-        storage.Seed("pending/s/t", """
+        storage.Seed("pending/s/t", $$"""
             {"$type":"ZavaFinance.Core.Agent.PendingTurn","$typeAssembly":"ZavaFinance.Agent",
-             "question":"private question","answer":"legacy cached answer"}
+             "question":"private question","answer":{{JsonSerializer.Serialize(answer)}}}
             """);
         Assert.Equal("conv_legacy", (await store.LoadAsync("s", None)).HostedAgentConversationId);
         var turn = new ChannelTestTurnContext();
         await processor.ProcessAsync(Request(), turn, _ => throw new Exception(), None);
-        Assert.Equal(["legacy cached answer"], turn.Messages);
+        Assert.Equal([answer], turn.Messages);
         Assert.Equal(0, hosted.Calls);
         Assert.Equal(TurnDeliveryStatus.Delivered, (await store.ReadTurnAsync("s", "t", None))!.Status);
+    }
+
+    [Fact]
+    public async Task TypedCachedFinalFinanceAnswerPreservesAllFormattingIncludingNumberedFacts()
+    {
+        var (store, _, hosted, processor) = Create();
+        const string answer = "1. Revenue: **€1,234.50**\n2. Expenses: **€456.78**\n\n[Source](https://example.invalid)";
+        await store.CreateTurnAsync("s", "t", "question", None);
+        await store.SaveAnswerAsync("s", "t", (await store.ReadTurnAsync("s", "t", None))!, answer, None);
+        var turn = new ChannelTestTurnContext();
+        await processor.ProcessAsync(Request(), turn, _ => throw new Exception("Must not acquire token"), None);
+        Assert.Equal(answer, Assert.Single(turn.Activities).Text);
+        Assert.True(turn.Activities[0].Attachments is null || turn.Activities[0].Attachments.Count == 0);
+        Assert.Equal(0, hosted.Calls);
     }
 
     [Fact]
@@ -389,11 +406,12 @@ public sealed class ChannelDeliveryTests
         public Func<CancellationToken, Task<string>> Ask { get; set; } = _ => Task.FromResult("private answer");
         public Task<string> CreateConversationAsync(CancellationToken cancellationToken)
             => Task.FromResult("conv_test_" + ++Creates);
-        public Task<string> AskAsync(string question, string userAssertion, string? conversationId, CancellationToken ct)
+        public async Task<FinanceReply> AskAsync(string question, string userAssertion, string? conversationId,
+            CancellationToken ct, ClarificationSubmission? submission = null)
         {
             Calls++;
             Conversations.Add(conversationId);
-            return Ask(ct);
+            return new FinanceReply(await Ask(ct));
         }
     }
 }

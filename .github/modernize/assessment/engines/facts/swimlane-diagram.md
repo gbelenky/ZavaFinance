@@ -10,7 +10,7 @@ flowchart LR
     subgraph SwimUser["User"]
         sUserAsk["1. Ask finance question"]
         sUserAck["7. See working message"]
-        sUserAnswer["22. Receive final answer"]
+        sUserAnswer["22. Receive answer or clarification card"]
     end
     subgraph SwimBot["Teams and Bot Service"]
         sBotForward["2. Forward signed activity"]
@@ -24,7 +24,7 @@ flowchart LR
         sSchedule["8. Schedule durable turn"]
         sResume["10. Resume conversation"]
         sCallAgent["11. Call Foundry Responses API"]
-        sCache["19. Cache answer as answer-ready"]
+        sCache["19. Cache typed reply as answer-ready"]
         sSend["20. Send proactive answer"]
         sDelivered["23. Record delivered"]
     end
@@ -41,7 +41,7 @@ flowchart LR
     end
     subgraph SwimFinance["Delegated Finance Service"]
         sObo["16. Exchange token on behalf of user"]
-        sTool["17. Query selected finance service"]
+        sTool["17. Resolve statement terms or query selected service"]
     end
 
     sUserAsk -->|"message"| sBotForward
@@ -60,7 +60,7 @@ flowchart LR
     sLoad -->|"question and history"| sRoute
     sRoute -->|"validated function call"| sObo
     sObo -->|"delegated access token"| sTool
-    sTool -->|"verbatim result"| sPersist
+    sTool -->|"verbatim answer or typed clarification"| sPersist
     sPersist -->|"response body"| sCache
     sCache -->|"reuse cached answer on retry"| sSend
     sSend -->|"ordinary message"| sBotFinal
@@ -110,4 +110,61 @@ without retaining permissioned finance responses.
 
 Channel acknowledgement, progress and final answers use ordinary messages, not in-place
 streaming. Delivered records suppress later retries, but a crash between sending and persisting
-delivery can still duplicate an external message.
+delivery can still duplicate an external message. Clarification cards are ordinary final
+messages for their turn; a selection starts a new authenticated turn.
+
+## Statement resolution and clarification
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Channel as Channel Service
+    participant Agent as Hosted agent and local resolver
+    participant SQL as Fabric delegated SQL
+    participant Search as Azure AI Search
+    participant Model as Embedding and candidate model
+    participant State as Caller conversation state
+    User->>Channel: Raw KPI, organization and date question
+    Channel->>Agent: Workload auth and forwarded user assertion
+    Agent->>Agent: Validate identity and strict period
+    Agent->>SQL: Active release and user-visible catalogue/scopes
+    SQL-->>Agent: Authoritative metadata
+    Agent->>Agent: Exact code/name/alias matching
+    opt No safe exact match
+        Agent->>Model: Embed raw query terms
+        Agent->>Search: Keyword plus vector and semantic retrieval
+        Search-->>Agent: Candidate IDs
+        Agent->>SQL: Revalidate candidates under user permissions
+        opt More than one plausible candidate
+            Agent->>Model: Constrained selection from permitted candidates
+            Model-->>Agent: Candidate ID or needs clarification
+        end
+    end
+    alt Ambiguity or any fuzzy suggestion, including a single candidate
+        Agent->>State: Pending request, field, candidates, expiry and full release binding
+        Agent-->>Channel: Numbered text result plus structured clarification options
+        Channel->>Channel: Persist AnswerReady before send
+        Channel-->>User: One attachment-only card with numbered choices and paths
+        Channel->>Channel: Record Delivered after nonempty message ID
+        User->>Channel: Submit Adaptive Card or reply with number/ordinal
+        Channel->>Agent: Authenticated selection and current conversation
+        Agent->>State: Match caller, request, candidate and expiry
+        Agent->>SQL: Confirm full active release binding and current visibility
+        Agent->>Agent: Reject stale, reset or forged selections
+    end
+    Agent->>SQL: Fixed parameterized query using leaf-scope EXISTS
+    SQL-->>Agent: Additive finance components
+    Agent->>Agent: Recompute ratios and render deterministic statement
+    Agent-->>Channel: Verbatim finance reply
+    Channel->>Channel: Persist AnswerReady and stop progress
+    Channel-->>User: Ordinary final message
+    Channel->>Channel: Record Delivered after nonempty message ID
+```
+
+The final SQL path is entered only after **all** required terms are resolved. If one field
+still needs clarification, return another prompt rather than running the statement. Direct
+Responses clients receive readable numbered options; negotiated channel clients receive the
+typed envelope, and the Channel Service builds the Adaptive Card from its structured options.
+Numbered result text remains available. Publication and retrieval never replace delegated
+financial authorization. The release binding includes catalogue version, Search index,
+embedding deployment and embedding dimensions; changing any field invalidates an old choice.

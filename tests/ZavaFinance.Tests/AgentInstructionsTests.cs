@@ -30,5 +30,7 @@ public sealed class AgentInstructionsTests
         Assert.Contains("host executes", prompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("verbatim", prompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Never answer", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("verbatim before canonicalization", prompt, StringComparison.Ordinal);
+        Assert.Contains("broaden", prompt, StringComparison.Ordinal);
     }
 }

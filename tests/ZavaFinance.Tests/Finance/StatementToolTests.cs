@@ -57,10 +57,12 @@ public sealed class StatementToolTests
             throw new InvalidOperationException("Must not acquire tokens.");
     }
 
-    private sealed class CancelledQuery : IStatementQuery
+    private sealed class CancelledQuery : IStatementQuery, IResolverCatalog
     {
-        public Task<OrganizationScope?> ResolveOrganizationAsync(string org, CancellationToken cancellationToken) =>
-            Task.FromCanceled<OrganizationScope?>(cancellationToken);
+        public Task<ResolverRelease> GetReleaseAsync(CancellationToken cancellationToken) =>
+            Task.FromCanceled<ResolverRelease>(cancellationToken);
+        public Task<ResolverCatalog> LoadCatalogAsync(CancellationToken cancellationToken) =>
+            Task.FromCanceled<ResolverCatalog>(cancellationToken);
         public Task<StatementResult> GetStatementAsync(
             KpiDefinition kpi, OrganizationScope organization, FinancePeriod period, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Must not run query.");

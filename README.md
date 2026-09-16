@@ -43,11 +43,50 @@ It answers three kinds of question, each as the signed-in user:
 | Tool | Backed by | Shape |
 |---|---|---|
 | `get_kpi_info` | Copilot Studio agent | Natural language, slow (~51 s) |
-| `get_statement` | Fabric lakehouse SQL | Structured arguments, sub-second |
+| `get_statement` | Local resolver and Fabric lakehouse SQL | Canonical, permission-checked arguments and deterministic figures |
 | `explore_finance` | Fabric data agent over MCP | Open-ended, 25 s to 3 min |
 
 > The finance dataset describes **Zava**, a fictional company. No real financial data is in this
 > repository.
+
+## Terminology resolver and clarification
+
+`get_statement` keeps SQL fixed and parameterized. The model supplies the user's raw terms;
+an **in-process resolver** matches Fabric-owned KPI and organization metadata before querying.
+Known unambiguous codes/aliases resolve directly. Genuine ambiguity produces a clarification,
+not a `TOP (1)` guess. Azure AI Search supplies keyword/vector/semantic candidates for
+paraphrases; only permitted, revalidated catalogue IDs may be selected. A model never writes
+the statement SQL or recomposes its financial answer.
+
+Every semantic suggestion requires confirmation, even when only one candidate remains.
+Only unambiguous exact metadata matches execute directly. Search index, embedding deployment
+and dimensions are bound together by the active Fabric release; deployment settings provide
+only the Search/model account endpoints and resolver behavior. Runtime retrieval uses the
+hosted agent's dedicated Entra identity, not the project's infrastructure managed identity.
+Fabric metadata and financial SQL are still authorized as the signed-in user.
+
+The reporting hierarchy is **Company > Region > Department group > Department**, with global
+department/group scopes. Branches expand to distinct existing fact-key pairs. KPI families
+are navigation only; margins and other ratios still come from the existing component calculator.
+The additive export has **114 entities and 336 scope rows**, preserving the original facts.
+
+The Channel Service presents KPI/organization ambiguity as Adaptive Cards with numbered,
+clickable rows and hierarchy context, built from structured clarification options. Clicking
+anywhere on an option submits that choice immediately; there are no radio buttons or separate
+Continue action. The agent also retains the numbered text result for compatibility, and users
+can still reply with an option number. Pending requests and selections belong to the validated
+caller and conversation, carry a catalogue version and expire; reset/stale/forged choices
+must not execute a statement. Cached typed replies preserve the existing delivery retry rules.
+
+- [Data model and publication runbook](docs/resolver-data.md)
+- [IT-admin dependencies, environment tiers, RBAC and Entra catalogue](docs/it-admin-catalogue.md)
+- [Architecture diagram](.github/modernize/assessment/engines/facts/architecture-diagram.md)
+- [Swimlane and clarification sequence](.github/modernize/assessment/engines/facts/swimlane-diagram.md)
+- [Editable Excalidraw architecture](docs/zavafinance-architecture.excalidraw)
+
+Signed-in resolver acceptance is recorded separately in the
+[current handover](HANDOVER.md#resolver-update---16-september-2026). Historical version-11
+results below remain evidence for that earlier release, not a replacement for resolver tests.
 
 ## Why it is split
 
@@ -110,14 +149,18 @@ src/ZavaFinance.Agent/     Foundry hosted agent:
                              Tools/          get_kpi_info, get_statement, explore_finance
                              Finance/        KPI catalog, period parsing, Fabric clients
                              Identity/       dependency-free shared identity project
+                             Contracts/      dependency-free reply and clarification protocol
                              Abstractions/   IDownstreamTokenProvider
 src/ZavaFinance.Channel/   Function App: Teams + M365 Copilot, ack, proactive delivery
 tests/ZavaFinance.Tests/   isolation, finance maths, tool failures, routing golden set
 appPackage/                Teams + Microsoft 365 Copilot manifest and icons
+scripts/                   Fabric metadata and Search publication/verification
+infra/                     Channel and resolver infrastructure and tier parameters
+docs/                      Data publication and IT-admin catalogue
 ```
 
-The channel references **only** `ZavaFinance.Identity`, not the hosted-agent executable.
-That small project contains caller identity and session-key derivation. It is deliberately
+The channel references the shared **Identity and Contracts** projects, not the hosted-agent
+executable. They contain caller/session identity and the typed reply protocol. They are deliberately
 nested under the agent's upload directory: code deploy uploads one project directory, so an
 external sibling dependency would be absent from the remote build. Agent and channel both
 reference the same identity assembly; routing, tools, and finance dependencies stay agent-only.
@@ -139,8 +182,8 @@ same routing definition.
 
 | Host | Persisted application state | Store |
 |---|---|---|
-| Channel | Platform conversation ID; pending, answer-ready, and delivered turn records | Private Blob Storage |
-| Agent | Bounded routing history, latest KPI, KPIpedia conversation ID | Foundry State Store |
+| Channel | Platform conversation ID; pending, answer-ready, and delivered turn records including cached typed replies | Private Blob Storage |
+| Agent | Bounded routing history, latest KPI, KPIpedia conversation ID and caller-bound pending clarification | Foundry State Store |
 
 `FoundrySessionStore` reads and writes one known session type without runtime CLR type loading.
 It preserves existing encoded keys and reads the old type/value envelope, ignoring obsolete
@@ -244,6 +287,42 @@ dotnet test --filter "FullyQualifiedName!~RoutingEvalTests"
 The offline suite covers native calls, caller isolation, state migration, bounded history,
 ordinary-message delivery/retries, MCP transport, and deterministic finance calculations.
 
+### Resolver acceptance - 16 September 2026
+
+The additive Fabric release and independent Search index were published, verified and activated:
+**114 catalogue entities, 336 scope rows**, eight generator tests and 13 delegated SQL checks.
+The final combined resolver, routing, state, formatting and Channel/MCS transport Release
+selection passed **332 tests**, zero failed/skipped. Both hosts published successfully.
+This supersedes the earlier overlapping 202-test Agent and 86-test Channel selections.
+Hosted Agent **v13** and the corrected Channel package are deployed.
+
+Signed-in Microsoft 365 testing exercised the deployed resolver:
+
+| Check | Verified result |
+|---|---|
+| Exact statement | EMEA November 2025 net revenue **85.6 M USD**, matching SQL **85,639,562.37** |
+| KPI clarification | Gross Margin selected from the margin card: **42.52%**, prior **43.21%**, **0.69 pp down** |
+| Organization clarification | IT card distinguished regional and global scopes; Global IT OPEX **13.1 M USD** |
+| Semantic retrieval | Raw paraphrase exercised runtime embeddings and Search, both HTTP 200; confirmation required before SQL |
+| Text compatibility | Both **third** and **2** resumed the correct authorized pending choices |
+| Hierarchy scopes | November OPEX: Company **199.6 M USD**, EMEA Corporate **27.0 M USD**, Global IT **13.1 M USD** |
+| Closing headcount | EMEA November 2025 **3,258 FTE**, not a sum across months |
+| Reset protection | Replayed pre-reset card explicitly rejected with no valid pending choice |
+| Confirmed delivery | Corrected v13 retest: one card per clarification, six post-persistence completions, zero exceptions in the test window; three cards and three finance answers survived browser reload |
+
+These verify the deterministic statement/resolver path, not the separate Fabric Data Agent's
+historical narrative-accuracy issue. See the handover for the Channel delivery correction,
+deployed build IDs and final acceptance evidence.
+
+**Clickable-item follow-up, 16 September at 18:05 UTC:** Channel-only deployment replaced
+radio/Continue selection with direct row submissions; Agent v13 and infrastructure are unchanged.
+All **90 targeted Channel tests** passed. A fresh signed-in Microsoft 365 conversation verified
+Gross Margin and Global IT row clicks plus a typed `2`; three cards and three correct finance
+answers persisted after reload, with six confirmed deliveries and no exceptions in the test window.
+Previously sent/cached cards keep their original layout; start a new clarification to see the update.
+
+### Historical simplification acceptance - 15 September 2026
+
 The local simplification passed **222 targeted offline regression tests** (zero failures or
 skips). Both hosts built and published successfully. The agent also passed isolated
 single-directory publishing, local readiness, and missing-user-assertion checks; the channel
@@ -312,6 +391,8 @@ Three rules, each learned the hard way:
 
 - .NET 10 SDK
 - A Foundry project with a chat model deployment
+- A dedicated Azure AI Search service with semantic ranker and a compatible embedding deployment
+- A staged, validated and activated Fabric resolver catalogue and matching versioned Search index
 - A published Copilot Studio agent with user authentication
 - A Fabric **F2 or higher** capacity, with a lakehouse and a published data agent
 - An Entra app registration with delegated permissions and **tenant-wide admin consent**:
@@ -366,8 +447,9 @@ accepted later streamed frames without rendering them, including the final answe
 message activities were observed to work on both surfaces. That history is why the feature was
 removed rather than merely deleting its delivery safeguards.
 
-After deploying this local change, verify a fast statement, a slow KPI/analysis turn, and
-cancellation on both Teams and Microsoft 365 Copilot. Local tests do not prove channel rendering.
+For each environment rollout, verify a fast statement, a slow KPI/analysis turn, clarification
+delivery and cancellation on both Teams and Microsoft 365 Copilot. Local tests do not prove
+channel rendering; the dated acceptance sections distinguish actual live checks from open gates.
 
 ### `azd deploy` is content-addressed
 

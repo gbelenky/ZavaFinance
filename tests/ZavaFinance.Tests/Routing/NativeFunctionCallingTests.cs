@@ -4,6 +4,7 @@ using Microsoft.Agents.CopilotStudio.Client;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using ZavaFinance.Agent;
+using ZavaFinance.Contracts;
 using ZavaFinance.Core.Abstractions;
 using ZavaFinance.Core.Agent;
 using ZavaFinance.Core.Configuration;
@@ -17,6 +18,172 @@ namespace ZavaFinance.Tests.Routing;
 
 public sealed class NativeFunctionCallingTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task HostConsumesCardAndOrdinalChoicesWithoutSendingCandidatesOrFiguresToModel(bool card)
+    {
+        using var chat = new FakeChatClient(new ChatMessage(ChatRole.Assistant,
+            [new FunctionCallContent("ambiguous-call", FinanceToolNames.StatementTool,
+                new Dictionary<string, object?> { ["kpi"] = "Net Revenue", ["org"] = "Marketing", ["dateRange"] = "Q2 2026" })]));
+        var fixture = new Fixture(chat);
+        FinanceReply reply = await fixture.RunReplyAsync("Show Net Revenue for Marketing in Q2 2026");
+        ClarificationPrompt prompt = Assert.IsType<ClarificationPrompt>(reply.Clarification);
+        Assert.Equal(2, prompt.Options.Count);
+        Assert.Equal(0, fixture.Query.Calls);
+        Assert.Single(chat.Requests);
+        ClarificationSubmission? submission = card
+            ? new(prompt.RequestId, prompt.Options[1].Id, prompt.CatalogVersion) : null;
+        FinanceReply answer = await fixture.RunReplyAsync(card ? "" : "second one", submission);
+        Assert.Equal(1, fixture.Query.Calls);
+        Assert.Null(answer.Clarification);
+        Assert.Equal(prompt.Options[1].Id, fixture.Query.Result!.Organization.Code);
+        Assert.Single(chat.Requests);
+        var state = await fixture.Store.LoadAsync("user-1", CancellationToken.None);
+        Assert.Null(state.PendingClarification);
+        Assert.DoesNotContain("Definition for", state.AgentSessionJson!);
+        Assert.DoesNotContain("298.0", state.AgentSessionJson!);
+        Assert.DoesNotContain(FakeTokens.Token, state.AgentSessionJson!);
+        FinanceReply replay = await fixture.RunReplyAsync("", new(prompt.RequestId, prompt.Options[1].Id, prompt.CatalogVersion));
+        Assert.Contains("no valid pending choice", replay.Text);
+        Assert.Equal(1, fixture.Query.Calls);
+        Assert.Single(chat.Requests);
+    }
+
+    [Fact]
+    public async Task DuplicateDisplayedLabelAsksForNumberWithoutExecutingOrCallingRouter()
+    {
+        using var chat = new FakeChatClient(new ChatMessage(ChatRole.Assistant,
+            [new FunctionCallContent("ambiguous-call", FinanceToolNames.StatementTool,
+                new Dictionary<string, object?> { ["kpi"] = "Net Revenue", ["org"] = "Marketing", ["dateRange"] = "2026" })]));
+        var fixture = new Fixture(chat);
+        FinanceReply reply = await fixture.RunReplyAsync("A scoped statement");
+        FinanceReply answer = await fixture.RunReplyAsync(reply.Clarification!.Options[0].Label);
+        Assert.Contains("does not uniquely identify", answer.Text);
+        Assert.Equal(0, fixture.Query.Calls);
+        Assert.Single(chat.Requests);
+        Assert.NotNull((await fixture.Store.LoadAsync("user-1", CancellationToken.None)).PendingClarification);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task UniqueDisplayedLabelsResumeBoundOptionsWithoutSendingLabelsToModel(bool longLabel, bool differentCase)
+    {
+        using var chat = new FakeChatClient(new ChatMessage(ChatRole.Assistant,
+            [new FunctionCallContent("ambiguous-call", FinanceToolNames.StatementTool,
+                new Dictionary<string, object?> { ["kpi"] = "Net Revenue", ["org"] = "market operations", ["dateRange"] = "2026" })]));
+        var fixture = new Fixture(chat);
+        fixture.Query.Catalog = UniqueDepartmentLabels(fixture.Query.Catalog, longLabel);
+        FinanceReply reply = await fixture.RunReplyAsync("A scoped statement");
+        ClarificationOption option = reply.Clarification!.Options[1];
+        string label = differentCase ? "  " + option.Label.ToUpperInvariant() + "  " : option.Label;
+        OrchestratorSessionState pendingState = await fixture.Store.LoadAsync("user-1", CancellationToken.None);
+        Assert.DoesNotContain(option.Label, FoundrySessionStore.Serialize(pendingState).ToString());
+        FinanceReply answer = await fixture.RunReplyAsync(label);
+        Assert.Equal(1, fixture.Query.Calls);
+        Assert.Equal(option.Id, fixture.Query.Result!.Organization.Code);
+        Assert.Contains("Source:", answer.Text);
+        Assert.Single(chat.Requests);
+        OrchestratorSessionState state = await fixture.Store.LoadAsync("user-1", CancellationToken.None);
+        Assert.Null(state.PendingClarification);
+        Assert.DoesNotContain(option.Label, state.AgentSessionJson!);
+        Assert.DoesNotContain("298.0", state.AgentSessionJson!);
+        Assert.DoesNotContain(FakeTokens.Token, state.AgentSessionJson!);
+    }
+
+    [Theory]
+    [InlineData("release")]
+    [InlineData("authorization")]
+    [InlineData("expired")]
+    [InlineData("owner")]
+    public async Task LabelChoicesUseTheSameReleaseCallerExpiryAndAuthorizationChecksAsCards(string change)
+    {
+        using var chat = new FakeChatClient(new ChatMessage(ChatRole.Assistant,
+            [new FunctionCallContent("ambiguous-call", FinanceToolNames.StatementTool,
+                new Dictionary<string, object?> { ["kpi"] = "Net Revenue", ["org"] = "market operations", ["dateRange"] = "2026" })]));
+        var fixture = new Fixture(chat);
+        fixture.Query.Catalog = UniqueDepartmentLabels(fixture.Query.Catalog);
+        FinanceReply reply = await fixture.RunReplyAsync("A scoped statement");
+        ClarificationOption option = reply.Clarification!.Options[1];
+        OrchestratorSessionState state = await fixture.Store.LoadAsync("user-1", CancellationToken.None);
+        switch (change)
+        {
+            case "release":
+                fixture.Query.Catalog = fixture.Query.Catalog with
+                {
+                    Release = fixture.Query.Catalog.Release with { SearchIndex = "changed-index" }
+                };
+                break;
+            case "authorization":
+                fixture.Query.Catalog = fixture.Query.Catalog with
+                {
+                    Entities = fixture.Query.Catalog.Entities.Where(entity => entity.Id != option.Id).ToArray()
+                };
+                break;
+            case "expired":
+                state.PendingClarification = state.PendingClarification! with { ExpiresAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1) };
+                break;
+            case "owner":
+                state.PendingClarification = state.PendingClarification! with { OwnerSessionKey = "other-user" };
+                break;
+        }
+        await fixture.Store.SaveAsync("user-1", state, CancellationToken.None);
+        FinanceReply answer = await fixture.RunReplyAsync(option.Label);
+        Assert.DoesNotContain("Source:", answer.Text);
+        Assert.Equal(0, fixture.Query.Calls);
+        Assert.Single(chat.Requests);
+    }
+
+    private static ResolverCatalog UniqueDepartmentLabels(ResolverCatalog catalog, bool longLabel = false) =>
+        catalog with
+        {
+            Entities = catalog.Entities.Select(entity => entity.Id switch
+            {
+                "dept-east" => entity with { Name = "First unit" },
+                "dept-west" => entity with { Name = "Second unit" + (longLabel ? new string('x', 220) : "") },
+                _ => entity
+            }).ToArray()
+        };
+
+    [Fact]
+    public async Task ForgedAndOtherUserChoicesNeverExecuteOrCallTheRouter()
+    {
+        using var chat = new FakeChatClient(new ChatMessage(ChatRole.Assistant,
+            [new FunctionCallContent("ambiguous-call", FinanceToolNames.StatementTool,
+                new Dictionary<string, object?> { ["kpi"] = "Net Revenue", ["org"] = "Marketing", ["dateRange"] = "2026" })]));
+        var fixture = new Fixture(chat);
+        FinanceReply reply = await fixture.RunReplyAsync("A scoped statement");
+        ClarificationPrompt prompt = reply.Clarification!;
+        await fixture.RunReplyAsync("", new(prompt.RequestId, "company", "v1"));
+        await fixture.RunReplyAsync("", new(prompt.RequestId, prompt.Options[0].Id, "v1"), "other-user");
+        Assert.Equal(0, fixture.Query.Calls);
+        Assert.Single(chat.Requests);
+    }
+
+    [Theory]
+    [InlineData("reset")]
+    [InlineData("Hello")]
+    public async Task ResetAndNewTurnsInvalidatePendingCards(string nextQuestion)
+    {
+        using var chat = new FakeChatClient(new ChatMessage(ChatRole.Assistant,
+            [new FunctionCallContent("ambiguous-call", FinanceToolNames.StatementTool,
+                new Dictionary<string, object?> { ["kpi"] = "Net Revenue", ["org"] = "Marketing", ["dateRange"] = "2026" })]),
+            new ChatMessage(ChatRole.Assistant, "I can help with finance."));
+        var fixture = new Fixture(chat);
+        FinanceReply reply = await fixture.RunReplyAsync("A scoped statement");
+        ClarificationPrompt prompt = reply.Clarification!;
+        await fixture.RunReplyAsync(nextQuestion);
+        FinanceReply expired = await fixture.RunReplyAsync("", new(prompt.RequestId, prompt.Options[0].Id, "v1"));
+        Assert.Contains("no valid pending choice", expired.Text);
+        Assert.Equal(0, fixture.Query.Calls);
+        Assert.Equal(nextQuestion == "reset" ? 1 : 2, chat.Requests.Count);
+        var state = await fixture.Store.LoadAsync("user-1", CancellationToken.None);
+        Assert.Null(state.PendingClarification);
+    }
+
     [Theory]
     [InlineData(FinanceToolNames.KpiInfoTool, "kpi", "I need a KPI name to look up.")]
     [InlineData(FinanceToolNames.ExploreFinanceTool, "question", "What would you like me to analyse?")]
@@ -423,6 +590,10 @@ public sealed class NativeFunctionCallingTests
             IDownstreamTokenProvider? tokens = null) =>
             Orchestrator.RunAsync(Agent, tokens ?? Tokens, sessionKey, question,
                 cancellationToken);
+
+        public Task<FinanceReply> RunReplyAsync(string question, ClarificationSubmission? submission = null,
+            string sessionKey = "user-1") =>
+            Orchestrator.RunReplyAsync(Agent, Tokens, sessionKey, question, submission, CancellationToken.None);
     }
 
     private sealed class MemorySessionStore : IAgentSessionStore
@@ -477,15 +648,16 @@ public sealed class NativeFunctionCallingTests
         }
     }
 
-    private sealed class FakeQuery : IStatementQuery
+    private sealed class FakeQuery : IStatementQuery, IResolverCatalog
     {
         public IDownstreamTokenProvider? Caller { get; set; }
         public StatementResult? Result { get; private set; }
         public int Calls { get; private set; }
         public bool Fail { get; set; }
 
-        public Task<OrganizationScope?> ResolveOrganizationAsync(string org, CancellationToken cancellationToken)
-            => Task.FromResult<OrganizationScope?>(new(OrganizationScope.Region, org, "EMEA"));
+        public ResolverCatalog Catalog { get; set; } = ResolverTestData.Standard;
+        public Task<ResolverRelease> GetReleaseAsync(CancellationToken cancellationToken) => Task.FromResult(Catalog.Release);
+        public Task<ResolverCatalog> LoadCatalogAsync(CancellationToken cancellationToken) => Task.FromResult(Catalog);
 
         public async Task<StatementResult> GetStatementAsync(KpiDefinition kpi,
             OrganizationScope organization, FinancePeriod period, CancellationToken cancellationToken)

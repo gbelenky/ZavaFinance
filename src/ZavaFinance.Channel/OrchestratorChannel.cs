@@ -11,6 +11,7 @@ using Microsoft.Agents.Builder.State;
 using Microsoft.Agents.Builder.UserAuth;
 using Microsoft.Agents.Core.Models;
 using Microsoft.Extensions.Logging;
+using ZavaFinance.Contracts;
 using ZavaFinance.Core.Identity;
 
 namespace ZavaFinance.Channel;
@@ -59,6 +60,11 @@ public sealed class OrchestratorChannel : AgentApplication
         _logger = logger;
 
         UserAuthorization.OnUserSignInFailure(OnSignInFailureAsync);
+        OnActivity(ActivityTypes.Message, OnMessageAsync,
+            autoSignInHandlers: [_options.UserAuthorizationHandler]);
+        AddRoute((context, _) => Task.FromResult(ClarificationCard.IsSupportedInvoke(context.Activity)),
+            OnClarificationInvokeAsync, isInvokeRoute: true,
+            autoSignInHandlers: [_options.UserAuthorizationHandler]);
     }
 
     [MembersAddedRoute]
@@ -77,15 +83,42 @@ public sealed class OrchestratorChannel : AgentApplication
         }
     }
 
-    [MessageRoute(autoSignInHandlers: "mcs")]
     public async Task OnMessageAsync(
         ITurnContext turnContext, ITurnState turnState, CancellationToken cancellationToken)
+        => await HandleUserTurnAsync(turnContext, cancellationToken);
+
+    public async Task OnClarificationInvokeAsync(
+        ITurnContext turnContext, ITurnState turnState, CancellationToken cancellationToken)
+    {
+        int status = await HandleUserTurnAsync(turnContext, cancellationToken);
+        object body = turnContext.Activity.Name == "adaptiveCard/action"
+            ? new AdaptiveCardInvokeResponse
+            {
+                StatusCode = status,
+                Type = status == 200 ? "text/plain" : "application/vnd.microsoft.error",
+                Value = status == 200 ? "Request received." : new
+                {
+                    code = status == 401 ? "Unauthorized" : "BadRequest",
+                    message = "The choice could not be accepted. Please ask again."
+                }
+            }
+            : new { task = (object?)null };
+        await turnContext.SendActivityAsync(new Activity
+        {
+            Type = ActivityTypes.InvokeResponse,
+            Value = new InvokeResponse { Status = 200, Body = body }
+        }, cancellationToken);
+    }
+
+    private async Task<int> HandleUserTurnAsync(
+        ITurnContext turnContext, CancellationToken cancellationToken)
     {
         string question = turnContext.Activity.Text?.Trim() ?? string.Empty;
 
-        if (string.IsNullOrEmpty(question))
+        if (string.IsNullOrEmpty(question) && turnContext.Activity.Value is null
+            && turnContext.Activity.Type != ActivityTypes.Invoke)
         {
-            return;
+            return 200;
         }
 
         CallerIdentity caller;
@@ -106,15 +139,34 @@ public sealed class OrchestratorChannel : AgentApplication
                 "I could not verify your identity for this conversation.",
                 cancellationToken: cancellationToken);
 
-            return;
+            return 401;
         }
+
+        ClarificationSubmission? submission;
+        try
+        {
+            submission = ClarificationCard.ReadSubmission(turnContext.Activity);
+            if (turnContext.Activity.Type == ActivityTypes.Invoke && submission is null)
+            {
+                throw new InvalidDataException("Missing clarification selection.");
+            }
+        }
+        catch (InvalidDataException)
+        {
+            _logger.LogWarning("Rejected malformed clarification submission.");
+            await turnContext.SendActivityAsync(
+                "I could not read that choice. Please use the latest card, or type your question again.",
+                cancellationToken: cancellationToken);
+            return 400;
+        }
+        if (submission is not null) { question = ClarificationCard.SubmissionQuestion; }
 
         string sessionKey = _sessionKeyProvider.GetSessionKey(
             caller, turnContext.Activity.Conversation.Id);
 
         // Answered inline: it is a store delete, nowhere near the channel timeout, and the
         // user should not be told "looking that up" for it.
-        if (IsResetCommand(question))
+        if (submission is null && IsResetCommand(question))
         {
             await _sessionStore.ResetAsync(sessionKey, cancellationToken);
 
@@ -124,7 +176,7 @@ public sealed class OrchestratorChannel : AgentApplication
                 "Cleared our conversation and started a fresh KPIpedia thread.",
                 cancellationToken: cancellationToken);
 
-            return;
+            return 200;
         }
 
         // Deterministic for this inbound activity, so a retried delivery resolves the same
@@ -136,12 +188,12 @@ public sealed class OrchestratorChannel : AgentApplication
         // different access-control boundary. Access tokens and tool results never enter
         // orchestration state either.
         bool created = await _sessionStore.CreateTurnAsync(
-            sessionKey, turnId, question, cancellationToken);
+            sessionKey, turnId, question, cancellationToken, submission);
 
         TurnDeliveryRecord? turn = await _sessionStore.ReadTurnAsync(sessionKey, turnId, cancellationToken);
         if (turn?.Status == TurnDeliveryStatus.Delivered)
         {
-            return;
+            return 200;
         }
 
         // Stored so the durable activity can resume this conversation later.
@@ -166,6 +218,7 @@ public sealed class OrchestratorChannel : AgentApplication
             cancellationToken);
 
         _logger.LogInformation("Scheduled Orchestrator orchestration {InstanceId}.", instanceId);
+        return 200;
     }
 
     /// <summary>

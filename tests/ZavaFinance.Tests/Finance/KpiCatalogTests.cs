@@ -40,8 +40,7 @@ public sealed class KpiCatalogTests
     [Fact]
     public void GrossMarginIsNotCapturedByGrossRevenue()
     {
-        // Substring matching alone would let "gross margin" resolve to "Gross Revenue"; the
-        // longest-name rule is what prevents a silently wrong KPI.
+        // Compatibility lookups are exact, never a longest-contained-name heuristic.
         Assert.Equal("KPI-006", KpiCatalog.Resolve("gross margin")!.Code);
         Assert.Equal("KPI-001", KpiCatalog.Resolve("gross revenue")!.Code);
     }
@@ -51,6 +50,9 @@ public sealed class KpiCatalogTests
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("the vibes")]
+    [InlineData("net")]
+    [InlineData("net revenue for an unrecognized business")]
+    [InlineData("margin")]
     public void ReturnsNullForUnknownText(string? text)
     {
         Assert.Null(KpiCatalog.Resolve(text));

@@ -39,12 +39,13 @@ public sealed record KpiDefinition(
     string Formula);
 
 /// <summary>
-/// The KPI catalogue.
+/// Supported statement calculations, not the runtime business vocabulary.
 /// <para>
-/// Held in code rather than read from <c>dim_kpi</c> on every turn because the aggregation rule
+/// Held in code because the aggregation rule
 /// for each KPI is executable logic, not data: a ratio KPI needs a specific recomputation, and
 /// a row in a dimension table cannot express that. <c>dim_kpi</c> remains the source for the
-/// codes themselves.
+/// codes themselves. Statement identity and aliases come exclusively from Fabric's
+/// published resolver catalogue; the compatibility lookup below is not used by get_statement.
 /// </para>
 /// </summary>
 public static class KpiCatalog
@@ -159,24 +160,7 @@ public static class KpiCatalog
             }
         }
 
-        // Longest canonical name wins, so "gross margin" cannot be captured by "gross revenue".
-        KpiDefinition? contained = All
-            .Where(k => Normalize(k.Name).Contains(needle, StringComparison.Ordinal)
-                || needle.Contains(Normalize(k.Name), StringComparison.Ordinal))
-            .OrderByDescending(k => Normalize(k.Name).Length)
-            .FirstOrDefault();
-
-        if (contained is not null)
-        {
-            return contained;
-        }
-
-        // Finally, an alias appearing inside a longer phrase such as "ebit for the nordics".
-        return Aliases
-            .Where(a => needle.Contains(a.Alias, StringComparison.Ordinal))
-            .OrderByDescending(a => a.Alias.Length)
-            .Select(a => All.First(k => k.Code == a.Code))
-            .FirstOrDefault();
+        return null;
     }
 
     internal static string Normalize(string value)

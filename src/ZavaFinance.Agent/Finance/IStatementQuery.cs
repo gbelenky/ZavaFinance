@@ -3,7 +3,8 @@
 namespace ZavaFinance.Core.Finance;
 
 /// <summary>Resolved organization scope for a statement.</summary>
-public sealed record OrganizationScope(string Kind, string Code, string Name)
+public sealed record OrganizationScope(
+    string Kind, string Code, string Name, string? CatalogVersion = null, ResolverRelease? Release = null)
 {
     public const string Region = "region";
     public const string Department = "department";
@@ -31,9 +32,6 @@ public sealed record StatementResult(
 /// </summary>
 public interface IStatementQuery
 {
-    /// <summary>Resolves an organization name or code, or null when it cannot be matched.</summary>
-    Task<OrganizationScope?> ResolveOrganizationAsync(string org, CancellationToken cancellationToken);
-
     Task<StatementResult> GetStatementAsync(
         KpiDefinition kpi,
         OrganizationScope organization,

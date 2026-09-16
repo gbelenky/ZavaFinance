@@ -23,6 +23,9 @@ flowchart TD
         AgentHost["ZavaFinance Hosted Agent"]
         AgentModel["Agent Model - Native Function Calling"]
         AgentState[("Foundry State Store")]
+        Resolver["In-process terminology resolver"]
+        Search["Azure AI Search - hybrid and semantic"]
+        ResolverModel["Embedding and constrained candidate selection"]
     end
     subgraph FinanceLayer["Finance Services"]
         KpiTool["KPI Information Tool"]
@@ -31,6 +34,8 @@ flowchart TD
         CopilotStudio["Copilot Studio Agent"]
         FabricSql[("Fabric Lakehouse SQL")]
         FabricAgent["Fabric Data Agent MCP"]
+        Catalog[("Fabric versioned catalogue and leaf scopes")]
+        Publisher["Metadata publication notebook and script"]
     end
     subgraph IdentityLayer["Identity and Observability"]
         Entra["Microsoft Entra ID"]
@@ -54,11 +59,20 @@ flowchart TD
     AgentHost -->|"execute statement call"| StatementTool
     AgentHost -->|"execute analysis call"| ExploreTool
     KpiTool -->|"delegated request"| CopilotStudio
-    StatementTool -->|"delegated SQL"| FabricSql
+    StatementTool -->|"raw KPI, organization and period"| Resolver
+    Resolver -->|"delegated visible metadata and active release"| Catalog
+    Resolver -->|"MI-authenticated candidate retrieval"| Search
+    Resolver -->|"query embedding and allowed candidates only"| ResolverModel
+    Resolver -->|"validated canonical IDs and fixed SQL"| FabricSql
+    Resolver -->|"pending clarification bound to caller"| AgentState
+    Resolver -->|"typed options or deterministic answer"| AgentHost
+    Publisher -->|"stage immutable metadata"| Catalog
+    Publisher -->|"publisher identity for catalogue embeddings"| ResolverModel
+    Publisher -->|"publish and verify versioned index"| Search
     ExploreTool -->|"delegated MCP"| FabricAgent
     ChannelHost -.->|"telemetry"| Monitor
     AgentHost -.->|"telemetry"| Monitor
-    ChannelHost -->|"proactive answer"| BotService
+    ChannelHost -->|"proactive answer or clarification card"| BotService
     BotService -->|"delivered response"| TeamsClient
     BotService -->|"delivered response"| M365Client
 ```
@@ -78,6 +92,10 @@ flowchart TD
 | KPI knowledge | Copilot Studio agent | Microsoft.Agents.CopilotStudio.Client 1.8.77 - GA | Returns sourced KPI definitions and calculations |
 | Structured finance | Fabric lakehouse SQL analytics endpoint | Microsoft.Data.SqlClient 6.1.4 - GA | Executes parameterized KPI statement queries under user permissions |
 | Exploratory finance | Fabric data agent over MCP | MCP 2025-06-18 | Answers open-ended finance questions under user permissions |
+| Terminology | In-process C# resolver | Same hosted deployment | Exact aliases, ambiguity handling, strict dates and candidate validation before fixed SQL |
+| Retrieval | Azure AI Search | GA hybrid/vector and semantic APIs | Dedicated, versioned metadata index; runtime read MI separate from publisher write identity |
+| Catalogue publication | Fabric Spark notebook and PowerShell | Fabric REST v1 | Builds additive hierarchy/scopes, verifies unchanged facts, activates only after index verification |
+| Clarification UX | Adaptive Cards and shared reply contract | Channel presentation | Agent returns numbered text plus typed options; Channel sends one attachment-only card with numbered choices, fallback and hierarchy paths; no SQL from card input |
 | Observability | OpenTelemetry and Azure Monitor | Microsoft.OpenTelemetry 1.0.7 | Emits channel and hosted-agent telemetry |
 
 ### Data Storage & External Services
@@ -90,6 +108,11 @@ The channel uses private Blob Storage for pending turns, proactive conversation 
 - The channel acknowledges quickly and completes work through Durable Task because downstream calls can exceed the Bot Service timeout.
 - Identity is fail-closed: the hosted agent validates the forwarded assertion before deriving a per-user session key or requesting delegated tokens.
 - Native function calls are executed by the host. Tool answers are returned verbatim and never fed back to the model; history records content-free result markers instead.
+- `get_statement` resolves terminology locally; Search retrieves candidates but never supplies SQL or financial figures.
+- Fabric is authoritative for metadata and fact visibility. Search MI access does not inherit user SQL security; revalidate candidates with delegated SQL before exposing them or model-selecting.
+- Branches cover distinct region/department pairs. Ratios are recomputed from components; global scopes and regional branches must not double count.
+- Pending clarification is bound to caller, conversation, request and the full release binding (catalogue version, Search index, embedding deployment/dimensions). A stale/reset/forged selection cannot execute a financial query.
+- This diagram describes the resolver update. Deployment and live acceptance evidence are recorded separately, not inferred from the diagram.
 
 ## Component Relationships
 
@@ -115,6 +138,7 @@ flowchart LR
     subgraph cTools["Finance Tools"]
         cKpi["KpiInfoTool"]
         cStatement["StatementTool"]
+        cResolver["Local terminology resolver"]
         cExplore["ExploreFinanceTool"]
     end
     subgraph cData["Data and Integration"]
@@ -144,7 +168,8 @@ flowchart LR
     cRouter -->|"execute exploration route"| cExplore
     cKpi -->|"create client"| cCopilotFactory
     cKpi -->|"request delegated token"| cTokenProvider
-    cStatement -->|"query figures"| cStatementQuery
+    cStatement -->|"resolve or clarify"| cResolver
+    cResolver -->|"validated hierarchy scope"| cStatementQuery
     cStatementQuery -->|"request delegated token"| cTokenProvider
     cExplore -->|"ask open question"| cDataAgent
     cDataAgent -->|"request delegated token"| cTokenProvider
@@ -162,7 +187,7 @@ flowchart LR
 | `HealthFunction` | Channel presentation | HTTP-triggered Azure Function | Exposes channel health status |
 | `DurableTaskOrchestratorTurnScheduler` | Durable workflow | Scheduler | Starts a deterministic orchestration for each pending turn |
 | `TurnOrchestrator` | Durable workflow | Durable orchestrator | Runs the processing activity with bounded retries |
-| `OrchestratorActivities` | Durable workflow | Durable activity | Resumes the conversation, invokes slow work, delivers once, and records completion |
+| `OrchestratorActivities` | Durable workflow | Durable activity | Resumes the conversation, invokes slow work, sends cached replies, and records confirmed delivery |
 | `FoundryHostedAgentClient` | Data and integration | HTTP client | Calls Foundry with workload authorization and a separate forwarded user assertion |
 | `ZavaFinanceResponseHandler` | Hosted agent | Responses API handler | Reads input, validates identity, creates OBO context, and runs native function selection and host execution |
 | `UserAssertionValidator` | Hosted agent | Security service | Validates assertion signature, issuer, audience, lifetime, tenant, and user claims |
@@ -170,6 +195,7 @@ flowchart LR
 | `OrchestratorAgent` | Hosted agent | Routing service | Uses the model to select one route, executes it, and persists routing state |
 | `KpiInfoTool` | Finance tools | Tool | Retrieves KPI definitions from Copilot Studio |
 | `StatementTool` | Finance tools | Tool | Resolves scope and period, then calculates structured finance statements |
+| Local terminology resolver | Hosted agent | In-process service | Reads authorized metadata, preserves ambiguity, uses Search as needed and validates selections |
 | `ExploreFinanceTool` | Finance tools | Tool | Sends open-ended questions to the Fabric data agent |
 | `FoundrySessionStore` | Hosted agent | Typed state store | Stores bounded routing history, KPI context and KPIpedia conversation handle |
 | Channel session and delivery store | Channel | State store | Stores platform conversation IDs and turn delivery lifecycle with cached answers |

@@ -8,6 +8,50 @@ param appName string = 'zavafin'
 @description('Azure region. Must support App Service Premium v3 and Durable Task Scheduler.')
 param location string = resourceGroup().location
 
+@allowed([
+  'dev'
+  'staging'
+  'prod'
+])
+param environmentName string = 'dev'
+
+@description('Dedicated Linux App Service recommendation, not a measured sizing result.')
+@allowed([
+  'P1v3'
+  'P2v3'
+  'P3v3'
+])
+param appServiceSku string = 'P1v3'
+
+@minValue(1)
+param appServiceInstanceCount int = 1
+
+@allowed([
+  'Standard_LRS'
+  'Standard_ZRS'
+])
+param storageSku string = 'Standard_LRS'
+
+@minValue(30)
+@maxValue(730)
+param logRetentionInDays int = 30
+
+@description('Use a distinct task hub for each independently deployed environment.')
+param taskHubName string = 'zavafinance'
+
+@description('DTS public endpoint source allowlist. Empty denies all traffic. Restrict to approved stable egress addresses where available.')
+param schedulerIpAllowlist array = [
+  '0.0.0.0/0'
+]
+
+@description('Non-overlapping address space approved by the network team.')
+param vnetAddressPrefix string = '10.10.0.0/16'
+param appSubnetAddressPrefix string = '10.10.1.0/24'
+param privateEndpointSubnetAddressPrefix string = '10.10.2.0/24'
+
+@description('Additional customer tags; solution and environment cannot be overridden.')
+param additionalTags object = {}
+
 @description('Client id of the Entra app registration backing the Azure Bot.')
 param botAppId string
 
@@ -28,16 +72,21 @@ param sessionKeySalt string
 @secure()
 param botClientSecret string
 
-@description('Object id of the principal allowed to read the Durable Task dashboard.')
+@description('Object id of an approved DTS dashboard operator. The assigned data contributor role is operational access, not read-only.')
 param operatorPrincipalId string = ''
+
+@description('Only enable if adding a queue/blob trigger or an Azure Storage durable backend. DTS itself does not require this role.')
+param enableQueueStorageRole bool = false
 
 var suffix = uniqueString(resourceGroup().id, appName)
 var storageName = take('st${toLower(appName)}${suffix}', 24)
-var tags = {
+var tags = union({
   purpose: 'demo'
   owner: 'gbelenky'
+}, additionalTags, {
   solution: 'ZavaFinance'
-}
+  environment: environmentName
+})
 
 // ---------------------------------------------------------------------------
 // Identity
@@ -59,7 +108,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2025-02-01' = {
     sku: {
       name: 'PerGB2018'
     }
-    retentionInDays: 30
+    retentionInDays: logRetentionInDays
   }
 }
 
@@ -85,13 +134,17 @@ resource storage 'Microsoft.Storage/storageAccounts@2025-01-01' = {
   location: location
   tags: tags
   sku: {
-    name: 'Standard_LRS'
+    name: storageSku
   }
   kind: 'StorageV2'
   properties: {
     allowSharedKeyAccess: false
-    // Anonymous blob access is off, and tenant policy keeps the public network
-    // endpoint disabled. Access is via private endpoints from the app subnet.
+    // Enforce the boundary in the template rather than relying on a policy mutation.
+    publicNetworkAccess: 'Disabled'
+    networkAcls: {
+      defaultAction: 'Deny'
+      bypass: 'None'
+    }
     allowBlobPublicAccess: false
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
@@ -124,9 +177,7 @@ resource scheduler 'Microsoft.DurableTask/schedulers@2026-02-01' = {
   location: location
   tags: tags
   properties: {
-    ipAllowlist: [
-      '0.0.0.0/0'
-    ]
+    ipAllowlist: schedulerIpAllowlist
     sku: {
       name: 'Consumption'
     }
@@ -135,13 +186,12 @@ resource scheduler 'Microsoft.DurableTask/schedulers@2026-02-01' = {
 
 resource taskHub 'Microsoft.DurableTask/schedulers/taskHubs@2026-02-01' = {
   parent: scheduler
-  name: 'zavafinance'
+  name: taskHubName
   properties: {}
 }
 
 // ---------------------------------------------------------------------------
-// Network. Tenant policy forces storage accounts to private network access, so
-// the Function App reaches storage over private endpoints via VNet integration.
+// The Function App reaches storage over private endpoints via VNet integration.
 // ---------------------------------------------------------------------------
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   name: 'vnet-${appName}-${suffix}'
@@ -150,14 +200,14 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   properties: {
     addressSpace: {
       addressPrefixes: [
-        '10.10.0.0/16'
+        vnetAddressPrefix
       ]
     }
     subnets: [
       {
         name: 'snet-app'
         properties: {
-          addressPrefix: '10.10.1.0/24'
+          addressPrefix: appSubnetAddressPrefix
           delegations: [
             {
               name: 'delegation-appservice'
@@ -171,7 +221,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
       {
         name: 'snet-privatelink'
         properties: {
-          addressPrefix: '10.10.2.0/24'
+          addressPrefix: privateEndpointSubnetAddressPrefix
           privateEndpointNetworkPolicies: 'Disabled'
         }
       }
@@ -269,8 +319,9 @@ resource hostingPlan 'Microsoft.Web/serverfarms@2024-11-01' = {
   location: location
   tags: tags
   sku: {
-    name: 'P0v3'
+    name: appServiceSku
     tier: 'PremiumV3'
+    capacity: appServiceInstanceCount
   }
   kind: 'linux'
   properties: {
@@ -338,6 +389,10 @@ resource functionApp 'Microsoft.Web/sites@2024-11-01' = {
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: appInsights.properties.ConnectionString
+        }
+        {
+          name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING'
+          value: 'ClientId=${identity.properties.clientId};Authorization=AAD'
         }
         {
           name: 'AZURE_CLIENT_ID'
@@ -466,7 +521,7 @@ resource teamsChannel 'Microsoft.BotService/botServices/channels@2023-09-15-prev
 }
 
 // ---------------------------------------------------------------------------
-// RBAC — managed identity everywhere, no keys.
+// Azure data-plane RBAC uses managed identity. Bot/OBO credentials are separate.
 // ---------------------------------------------------------------------------
 var storageBlobDataOwner = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
 var storageQueueDataContributor = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
@@ -487,7 +542,7 @@ resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
-resource storageQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource storageQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableQueueStorageRole) {
   scope: storage
   name: guid(storage.id, identity.id, storageQueueDataContributor)
   properties: {
@@ -563,6 +618,14 @@ output messagingEndpoint string = 'https://${functionApp.properties.defaultHostN
 output botName string = bot.name
 output identityClientId string = identity.properties.clientId
 output identityPrincipalId string = identity.properties.principalId
+output identityResourceId string = identity.id
+output storageAccountName string = storage.name
+output storageAccountId string = storage.id
+output privateEndpointSubnetId string = privateLinkSubnet.id
+output vnetId string = vnet.id
+output logAnalyticsWorkspaceId string = logAnalytics.id
 output stateContainerUri string = '${storage.properties.primaryEndpoints.blob}${stateContainer.name}'
 output schedulerEndpoint string = scheduler.properties.endpoint
+output schedulerId string = scheduler.id
+output taskHubName string = taskHub.name
 output appInsightsConnectionString string = appInsights.properties.ConnectionString

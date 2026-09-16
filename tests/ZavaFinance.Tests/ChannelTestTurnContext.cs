@@ -22,7 +22,7 @@ internal sealed class ChannelTestTurnContext : ITurnContext
         cancellationToken.ThrowIfCancellationRequested();
         Interlocked.Increment(ref _sendAttempts);
         if (BeforeSend is not null) { await BeforeSend(activity, cancellationToken); }
-        if (activity.Text == FailText) { throw new IOException("Simulated delivery failure."); }
+        if (FailText is not null && activity.Text == FailText) { throw new IOException("Simulated delivery failure."); }
         lock (_gate) { _activities.Add(activity); }
         return new ResourceResponse { Id = MissingResourceId ? null! : $"message-{SendAttempts}" };
     }
@@ -51,9 +51,10 @@ internal sealed class ChannelTestTurnContext : ITurnContext
     // Throwing here verifies that the ordinary-message implementation never inspects streams
     // or installs interception hooks, even when the actual channel supports streaming.
     public IStreamingResponse StreamingResponse => throw new NotSupportedException();
-    public System.Security.Claims.ClaimsIdentity Identity => throw new NotSupportedException();
+    public System.Security.Claims.ClaimsIdentity Identity { get; init; } = new(
+        [new System.Security.Claims.Claim("aud", "bot-1")], "test-channel");
     public IChannelAdapter Adapter => throw new NotSupportedException();
-    public bool Responded => throw new NotSupportedException();
+    public bool Responded => Activities.Count > 0;
     public TurnContextStateCollection StackState { get; } = new();
     public TurnContextStateCollection Services { get; } = new();
     public Task<ResourceResponse[]> SendActivitiesAsync(IActivity[] activities, CancellationToken cancellationToken = default)

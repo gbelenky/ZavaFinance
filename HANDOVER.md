@@ -18,6 +18,166 @@ each as the signed-in user:
 
 Zava is a fictional company. There is no real financial data anywhere in this project.
 
+## Resolver update - 16 September 2026
+
+The approved update adds Fabric-owned terminology, Azure AI Search retrieval and a local
+resolver inside the hosted agent, plus adaptive KPI/organization clarification in the channel.
+It does not add a resolver API/Function or delegate SQL generation to a model.
+The agent returns numbered clarification text plus structured options. The Channel Service
+builds the Adaptive Card from those options; card presentation does not belong in the agent.
+
+### Clickable-item follow-up - 18:05 UTC
+
+- Channel-only ZIP deployment `52f91e63-089c-405a-b756-ccc2bba63b79` completed successfully at
+  `2026-09-16T18:05:26.6013698Z`. Hosted Agent **v13** remains unchanged.
+- Each numbered option is a full-width clickable row, including its hierarchy/description.
+  Its `Container.selectAction` submits the existing schema/action/request/catalogue binding and
+  its own option ID. No radio inputs or Continue button; typed numbers/ordinals remain supported.
+  New cards use this layout; historical and cached cards keep their original payload.
+- Five new behavioral cases first failed against the radio renderer. After the change,
+  **90 targeted Channel tests** passed: row/payload binding, 1/8/25 options, inbound authentication,
+  legacy submissions, retries, storage and real MCS SDK acknowledgement handling.
+- `/health` returned 200; four Functions loaded and the Durable Task worker connected with MI.
+  Existing scoped Channel role assignments were verified; no roles/settings/infrastructure changed.
+- Fresh signed-in Microsoft 365 conversation `0be1747a-d05a-4eb4-be1b-dae771c5da83`:
+  clicking Gross Margin returned **42.52%**, prior **43.21%**, **0.69 pp down**; clicking the
+  Global IT row's description returned **13.1 M USD** OPEX. A further margin card accepted `2`
+  and returned the same correct margin. No separate submit step was used.
+- After reload: **three cards, 11 clickable rows, zero radios/Continue buttons and three final
+  finance answers**. Six `Turn progress finished` traces confirmed post-Delivered persistence
+  between `18:06:55Z` and `18:11:13Z`; no exceptions in the `18:06Z-18:12Z` window.
+  Browser pointer automation required the existing DOM-click workaround; a first OPEX wait
+  mismatched `13.1M` versus rendered `13.1 M`, not a failed submission.
+- Single attachment-only transport, nonempty response-ID guard and at-least-once delivery
+  remain unchanged. Changes are uncommitted and unpushed.
+
+### Resolver rollout and earlier acceptance
+
+The independent reporting model is Company > Region > Department group > Department, plus
+global groups/departments. It preserves all existing keys and financial formulas. Branches are
+sets of region/department fact pairs, not sums of previously calculated KPI values. Ambiguous
+aliases remain ambiguous; KPI families cannot be executed as measures.
+
+Data publication and activation verified:
+
+- Version `2026-09-16-v1` staged through Fabric notebook
+  `2abe237d-bf50-48ca-8f56-1c3b91d3e416`, run
+  `a0719460-ef51-4bf9-9bda-65f9aa37b5e6`.
+- After Search verification, activation notebook `4a3efa5b-1d59-4a4b-90a6-3aaf69e51991`,
+  run `53892221-5b8a-482c-bb4c-c61aa79c774a`, completed at `2026-09-16T16:26:11Z`.
+- Delegated SQL confirms **114 catalogue entities**, **336 scope rows**, one calendar convention
+  row and exactly one active release: `2026-09-16-v1`, index
+  `zava-resolver-2026-09-16-v1`, embedding deployment `text-embedding-3-large`, dimensions 1536.
+- Eight offline generator tests and 13 live SQL invariant/reference checks passed.
+- EMEA November 2025 still returns **85,639,562.37** net revenue, **42.52%** gross margin and
+  **3,258 FTE** closing headcount using the new hierarchy scope.
+
+The notebook verifies source Delta versions did not change during its writes. Only additive
+resolver tables are written. SQL synchronization is asynchronous: the first table listing
+after the successful Spark job did not yet show the new tables; the subsequent SQL checks did.
+
+Search provisioning and publication are verified:
+
+- Independent `srch-zavafin-dev` in Sweden Central, Basic 1 replica / 1 partition, Entra-only.
+- Runtime Search reader and separate publisher schema/data roles verified at service scope.
+- Runtime identity `0c09646f-a065-4aad-b29e-69e9bc6a0da6` now has Cognitive Services OpenAI User
+  on the existing model account. Only the missing runtime assignment was created, using the
+  Bicep what-if assignment ID `ac6d40a0-afdf-566c-b463-79564aa45148`; the publisher's existing
+  grant was retained without duplication.
+- Index `zava-resolver-2026-09-16-v1` contains exactly 114 expected document IDs, all at the
+  staged version, with 1536-dimensional embeddings and semantic reranking.
+- For "gross profit as a share of net sales", gross margin is candidate 2, not candidate 1.
+  Publication checks top-three recall, not automatic top-one selection; the resolver must
+  confirm fuzzy matches rather than infer correctness from rank. The initial top-one probe
+  was too strict for this retrieval contract and failed before activation.
+- Both hosts publish successfully with shared Identity/Contracts libraries; Channel dependency
+  isolation is verified. Initial Agent Release selection: **202 passed, zero failed/skipped**;
+  the separate initial Channel selection passed **86** tests before live delivery testing.
+  The final corrected combined Release selection passed **332 tests**, zero failed/skipped.
+- Nonzero hierarchy OPEX totals independently matched direct fact filters for November 2025:
+  Company **199,596,299.89**, Global IT **13,098,583.70**, EMEA Corporate **27,046,917.95**.
+
+Channel release is deployed:
+
+- Code-only ZIP deployment `0bb04d1e-fc6e-484f-8344-ef72957cd88d` succeeded at
+  `2026-09-16T16:38:08Z`; no settings or infrastructure were changed.
+- Fresh Release tests for final Channel/contracts/formatting changes: **86 passed**.
+  VS Code had stale discovery for a changed theory; fresh CLI discovery passed both cases.
+- `/health` returns HTTP 200; all four Functions are indexed. Startup logs confirm the
+  Durable Task worker connected using managed identity and started listening.
+
+Hosted Agent **v12** was deployed with marker `2026-09-16.1-resolver-clarification`,
+and is superseded by **v13** below.
+`azd deploy zavafinance --environment zavafinance --no-prompt` succeeded; a fresh signed-in
+Microsoft 365 conversation started the new version, with readiness HTTP 200 and the same
+dedicated runtime identity. `azd show` does not recognize this data-plane source deployment
+and can report "not provisioned"; the agent API, session startup and actual replies are the
+authoritative evidence. Do not run global provisioning in response to that message.
+
+Signed-in checks on v12 verified:
+
+- Exact EMEA November 2025 net revenue: **85.6 M USD**, matching the unrounded SQL reference.
+- KPI ambiguity: a Channel-built card offered EBITDA/Gross/Operating Margin; selecting
+  Gross Margin returned **42.52%**, prior **43.21%**, change **0.69 pp down**.
+- Organization ambiguity: IT offered four regional scopes and a global scope with full paths;
+  the Global IT card choice returned **13.1 M USD** operating expenses.
+- Company and EMEA Corporate OPEX returned **199.6 M USD** and **27.0 M USD** respectively,
+  matching the independent fact-scope comparisons above.
+- "Gross profit as a share of net sales" reached the resolver verbatim. Runtime logs show
+  embedding HTTP 200 at `17:04:32Z` and Search HTTP 200 at `17:04:33Z`. The resolver requested
+  confirmation instead of executing its highest-ranked candidate. Replying **third** selected
+  Gross Margin and produced the same correct deterministic statement.
+- Closing headcount for EMEA November 2025 returned **3,258 FTE**, prior **3,252**.
+  Numeric reply **2** correctly continued its confirmation, complementing the ordinal check.
+- After `reset`, replaying a visible pre-reset card returned "There is no valid pending choice
+  for that selection. Please ask the statement again." It did not execute a finance query.
+  Forged, expired, cross-session and changed-release selections are additionally covered
+  by offline tests; this is not a claim that two real users were tested.
+
+Live testing exposed a Channel delivery defect in the first ZIP: Microsoft 365 rendered
+mixed text-plus-card activities but returned no message ID, causing three durable retries.
+The nonempty message-ID requirement correctly prevented recording these as Delivered.
+The correction sends a single attachment-only activity, with numbered choices and text
+fallback inside the card. Agent numbered results and ordinary text finance replies remain
+unchanged. Empty successful callback responses still fail; no message ID is invented.
+
+Final corrective deployment and acceptance:
+
+- Channel code-only ZIP `1982b315-64e6-40d4-8f5b-7970101f8df0` completed at
+  `2026-09-16T17:31:31Z`. No settings, infrastructure or identity changes.
+- Current hosted Agent **v13**, marker `2026-09-16.2-resolver-clarification`, adds narrowly
+  scoped Search/reranker error recovery and sanitized malformed-vector warnings. Unexpected
+  errors and caller cancellation propagate. Both hosts publish; the combined **332-test**
+  selection passes. Actual source ZIP project closure and Channel dependency isolation pass.
+- Fresh v13 startup at `17:34:01Z`, readiness HTTP 200, unchanged dedicated runtime identity
+  and live Search Index Data Reader / Cognitive Services OpenAI User roles verified.
+- Signed-in M365 conversation `3c1bb323-2096-4239-a863-b73bac1cdd4b`, hosted session
+  `11c7fbdfe873c093853ed4da1d4a608f787f4af298a8d1156fff624d82f11a6`: exactly one
+  margin card, one IT card and one semantic clarification card. Rendered list numbering
+  verified, including the second and third option numbers.
+- Gross Margin card selection returned **42.52%**, prior **43.21%**, **0.69 pp down**.
+  Global IT card selection returned **13.1 M USD** OPEX, prior **12.9 M USD**.
+  The semantic paraphrase again called embeddings and Search successfully (HTTP 200 at
+  `17:37:15Z` and `17:37:16Z`); text reply **third** returned the same correct Gross Margin.
+- All six turns emitted completion after awaited `MarkDeliveredAsync`; the three card
+  completions were at `17:34:18.708Z`, `17:35:44.950Z` and `17:37:17.247Z`.
+  Durable execution succeeded. Application Insights reported **zero exceptions** for
+  `17:33:00Z` through `17:39:00Z`, with no delivery-failure traces.
+- Browser reload preserved exactly three cards and three final finance answers, without
+  duplicate clarification pairs. Normal confirmed delivery is verified; a crash between
+  external send and persistence can still duplicate a message (at-least-once semantics).
+
+Diagnostic boundaries: AppLens returned 401, so diagnosis used existing authorized Application
+Insights and hosted-session logs. Direct workstation Blob inspection was blocked by the
+intended private network rules; SCM had no managed-identity endpoint. No firewall/identity
+setting was relaxed. Delivery evidence uses the post-`MarkDeliveredAsync` completion trace
+and rendered conversation, with content-free tombstone shape verified by storage tests.
+
+See [publication operations](docs/resolver-data.md) and the
+[customer-shareable IT-admin catalogue](docs/it-admin-catalogue.md). Separate dev/staging/prod
+resources and permissions are documented; staging/prod are not implicitly deployed.
+The historical deployment and UI evidence below remains evidence for the prior release only.
+
 ## Why it is shaped this way
 
 Routing and tools live in a Foundry hosted agent, and the Teams side is a thin channel that owns
@@ -159,7 +319,7 @@ the tool response without a model synthesis pass. The rewrite that removed citat
 by that extra generation pass, not by function calling. Conversation history closes each
 function call with a content-free result marker, never the permissioned answer. This code change
 does not itself redeploy the hosted agent; earlier live verification below describes the
-previous deployed build.
+previous deployed build at that checkpoint. The resolver release status is recorded above.
 
 Annotated methods now drive both native declarations and SDK invocation. The host uses
 `AIFunctionFactory.Create` and `AIFunction.InvokeAsync` to bind arguments rather than a tool-name
@@ -209,7 +369,7 @@ Deployment on 15 September 2026:
 | Component | Verified outcome |
 | --- | --- |
 | Fabric `capfabricdaweus3` / `rg-fabric-da` | Resumed at 11:17 +02:00; Active on unchanged F2. Billing is running. |
-| Foundry `zavafinance` / `prj-fdr-swc` | Version 11 active; new-session logs confirm `2026-09-15.2-native-routing`. |
+| Foundry `zavafinance` / `prj-fdr-swc` | Version 11 was active on 15 September; new-session logs confirmed `2026-09-15.2-native-routing`. Superseded by v13 above. |
 | Functions `app-zavafin-xjm5mipto7f22` | ZIP deployment `bde00a72-6465-475a-8a4b-3fd3a46d8d1e` succeeded; four functions indexed, health 200. |
 | Channel dependencies | Startup logs confirm Durable Task connected using managed identity. |
 | Authentication checks | Channel rejects an unsigned request with 401; agent refuses missing and wrong-audience user assertions. |
@@ -370,10 +530,11 @@ Note that the tenant has been cleaned: the stale **Finance Orchestrator** agent 
 Both agents disappeared from the Copilot agent list as a result. Zava Finance is the only finance
 agent left, and its own app registration (`ZavaFinance-Bot`) was never involved.
 
-**The project is not under source control.** Nothing has been committed. A secret and the session
-key salt are sitting in a plain folder. This should be dealt with early. Note that the salt must
-never be regenerated — it would change every derived session key and orphan every existing
-conversation.
+**Source control is active.** The prior simplification was committed and pushed as `6659534`
+on the user's explicit instruction. The resolver changes are intentionally **uncommitted and
+unpushed**. Local credential/settings files remain outside the committed source; deployment
+inputs must use the approved secure configuration mechanism. Never regenerate the session-key
+salt casually: it changes every derived session key and orphans existing conversations.
 
 **The isolation test has never been run.** Two users, one group chat, a question whose answer
 differs by permission. This is the single most valuable test in the project and it does not exist

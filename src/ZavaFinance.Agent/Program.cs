@@ -7,6 +7,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.AI;
 using Microsoft.Identity.Client;
 using ZavaFinance.Agent;
 using ZavaFinance.Core.Agent;
@@ -57,6 +58,9 @@ ResponsesServer.Run<ZavaFinanceResponseHandler>(configure: builder =>
 
     var fabricOptions = new FabricOptions();
     configuration.GetSection(FabricOptions.SectionName).Bind(fabricOptions);
+    var resolverOptions = new ResolverOptions();
+    configuration.GetSection(ResolverOptions.SectionName).Bind(resolverOptions);
+    resolverOptions.Validate();
 
     var oboOptions = new OboOptions();
     configuration.GetSection(OboOptions.SectionName).Bind(oboOptions);
@@ -82,6 +86,7 @@ ResponsesServer.Run<ZavaFinanceResponseHandler>(configure: builder =>
     builder.Services.AddSingleton(orchestratorOptions);
     builder.Services.AddSingleton(foundryOptions);
     builder.Services.AddSingleton(fabricOptions);
+    builder.Services.AddSingleton(resolverOptions);
     builder.Services.AddSingleton(oboOptions);
     builder.Services.AddSingleton(TimeProvider.System);
     builder.Services.AddHttpClient();
@@ -111,6 +116,18 @@ ResponsesServer.Run<ZavaFinanceResponseHandler>(configure: builder =>
         sp => sp.GetRequiredService<FabricClientFactory>());
     builder.Services.AddSingleton<IFabricDataAgentClientFactory>(
         sp => sp.GetRequiredService<FabricClientFactory>());
+    builder.Services.AddSingleton<IResolverSearch>(sp =>
+    {
+        // Runtime retrieval uses managed identity, never a search key or a caller's SQL token.
+        var resolverCredential = new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned);
+        var project = new AIProjectClient(new Uri(foundryOptions.ProjectEndpoint), resolverCredential);
+        IChatClient reranker = project.GetProjectOpenAIClient().GetResponsesClient()
+            .AsIChatClient(foundryOptions.ModelDeployment);
+        return new AzureResolverSearch(
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(AzureResolverSearch)),
+            resolverCredential, resolverOptions, reranker, foundryOptions.ModelDeployment,
+            sp.GetRequiredService<ILogger<AzureResolverSearch>>());
+    });
 
     // Hosted execution and the golden-set evaluation share one routing definition.
     builder.Services.AddSingleton<AIAgent>(_ =>

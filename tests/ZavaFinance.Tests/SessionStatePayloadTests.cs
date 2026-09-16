@@ -2,12 +2,43 @@ using System.Text.Json;
 using Azure.Core;
 using ZavaFinance.Agent;
 using ZavaFinance.Core.Agent;
+using ZavaFinance.Core.Finance;
+using ZavaFinance.Contracts;
 using Xunit;
 
 namespace ZavaFinance.Tests;
 
 public sealed class SessionStatePayloadTests
 {
+    [Fact]
+    public void PendingChoicesPersistIdsRawArgumentsAndReleaseBindingOutsideModelHistory()
+    {
+        var state = new OrchestratorSessionState
+        {
+            AgentSessionJson = """{"messages":[]}""",
+            PendingClarification = new("request-1", "org", "v1",
+                new("raw metric", "raw region", "Q2 2026", "KPI-003"),
+                ["org-one", "org-two"], DateTimeOffset.UtcNow.AddMinutes(15), "caller-conversation-key",
+                new ResolverRelease("v1", "resolver-v1", "text-embedding-3-large", 1536),
+                [ClarificationSelection.HashLabel("Authorized label"), ClarificationSelection.HashLabel("Other label")]),
+            ReplyClarification = new("request-1", "org", "Pick one",
+                [new("org-one", "Authorized label", "Definition not retained")], "v1")
+        };
+        BinaryData data = FoundrySessionStore.Serialize(state);
+        OrchestratorSessionState restored = FoundrySessionStore.Deserialize(data);
+        Assert.Equal(state.PendingClarification.RequestId, restored.PendingClarification!.RequestId);
+        Assert.Equal(state.PendingClarification.Arguments, restored.PendingClarification.Arguments);
+        Assert.Equal(state.PendingClarification.CandidateIds, restored.PendingClarification.CandidateIds);
+        Assert.Equal(state.PendingClarification.Release, restored.PendingClarification.Release);
+        Assert.Equal(state.PendingClarification.CandidateLabelHashes, restored.PendingClarification.CandidateLabelHashes);
+        Assert.Equal("caller-conversation-key", restored.PendingClarification.OwnerSessionKey);
+        Assert.DoesNotContain("Authorized label", data.ToString());
+        Assert.DoesNotContain("Definition not retained", data.ToString());
+        Assert.DoesNotContain("org-one", restored.AgentSessionJson!);
+        Assert.DoesNotContain("resolver-v1", restored.AgentSessionJson!);
+        Assert.Null(restored.ReplyClarification);
+    }
+
     [Fact]
     public void TypedPayloadIsOneJsonObjectWithOnlyAgentState()
     {

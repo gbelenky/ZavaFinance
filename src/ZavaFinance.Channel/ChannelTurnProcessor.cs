@@ -1,6 +1,7 @@
 using Microsoft.Agents.Builder;
 using Microsoft.Agents.Core.Models;
 using Microsoft.Extensions.Logging;
+using ZavaFinance.Contracts;
 
 namespace ZavaFinance.Channel;
 
@@ -28,6 +29,7 @@ public sealed class ChannelTurnProcessor(
             // before either the first answer or a cached-answer retry uses the final send below.
             await using var progress = TurnProgress.Start(turnContext, logger, timeProvider, ct);
             string answer;
+            string? cardJson = null;
             try
             {
                 string assertion = await getAssertion(ct);
@@ -61,11 +63,11 @@ public sealed class ChannelTurnProcessor(
                     }
                 }
 
-                answer = await hostedAgent.AskAsync(turn.Question!, assertion, session.HostedAgentConversationId, ct);
-                if (string.IsNullOrWhiteSpace(answer))
-                {
-                    throw new InvalidDataException("The hosted agent returned no answer.");
-                }
+                FinanceReply reply = await hostedAgent.AskAsync(
+                    turn.Question!, assertion, session.HostedAgentConversationId, ct, turn.Submission);
+                FinanceReplyProtocol.Validate(reply);
+                answer = ClarificationCard.CreateFallbackText(reply);
+                if (reply.Clarification is not null) { cardJson = ClarificationCard.CreateJson(reply.Clarification); }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (OperationCanceledException)
@@ -79,7 +81,7 @@ public sealed class ChannelTurnProcessor(
                 answer = "Something went wrong while answering that. Please try again.";
             }
 
-            await store.SaveAnswerAsync(request.SessionKey, request.TurnId, turn, answer, ct);
+            await store.SaveAnswerAsync(request.SessionKey, request.TurnId, turn, answer, ct, cardJson);
             turn = await store.ReadTurnAsync(request.SessionKey, request.TurnId, ct)
                 ?? throw new InvalidDataException("Cached channel answer is missing.");
         }
@@ -90,7 +92,8 @@ public sealed class ChannelTurnProcessor(
             return;
         }
 
-        ResourceResponse response = await turnContext.SendActivityAsync(MessageFactory.Text(turn.Answer!), ct);
+        ResourceResponse response = await turnContext.SendActivityAsync(
+            ClarificationCard.CreateMessage(turn.Answer!, turn.CardJson), ct);
         if (string.IsNullOrWhiteSpace(response?.Id))
         {
             throw new InvalidOperationException("The channel did not confirm final message creation.");

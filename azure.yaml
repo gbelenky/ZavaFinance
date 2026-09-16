@@ -8,7 +8,7 @@ name: zavafinance
 services:
   zavafinance:
     host: azure.ai.agent
-    # Code deploy uploads this directory. The shared identity project is nested inside it,
+    # Code deploy uploads this directory. Shared identity and contracts are nested inside it,
     # so the source package contains every project needed by the remote build.
     project: src/ZavaFinance.Agent
     language: csharp
@@ -64,6 +64,13 @@ services:
         value: ${FABRIC_WORKSPACE_ID}
       - name: Fabric__DataAgentId
         value: ${FABRIC_DATA_AGENT_ID}
+
+      - name: Resolver__SearchEndpoint
+        value: ${RESOLVER_SEARCH_ENDPOINT}
+      - name: Resolver__SemanticConfigurationName
+        value: resolver-semantic
+      - name: Resolver__EmbeddingEndpoint
+        value: ${RESOLVER_EMBEDDING_ENDPOINT}
     container:
       resources:
         cpu: '1'

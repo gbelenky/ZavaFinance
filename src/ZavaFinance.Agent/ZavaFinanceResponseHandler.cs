@@ -5,6 +5,7 @@ using Azure.AI.AgentServer.Responses.Models;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Identity.Client;
+using ZavaFinance.Contracts;
 using ZavaFinance.Core.Agent;
 using ZavaFinance.Core.Identity;
 
@@ -65,13 +66,28 @@ public sealed class ZavaFinanceResponseHandler : ResponseHandler
     private async Task<string> AnswerAsync(
         ResponseContext context, CancellationToken cancellationToken)
     {
+        FinanceReply reply = await AnswerReplyAsync(context, cancellationToken);
+        context.ClientHeaders.TryGetValue(FinanceReplyProtocol.ReplyFormatHeader, out string? format);
+        return FormatReply(reply, format);
+    }
+
+    internal static string FormatReply(FinanceReply reply, string? format) =>
+        format == FinanceReplyProtocol.ReplyFormat
+            ? FinanceReplyProtocol.SerializeReply(reply)
+            : reply.Text;
+
+    private async Task<FinanceReply> AnswerReplyAsync(
+        ResponseContext context, CancellationToken cancellationToken)
+    {
         string question =
             await context.GetInputTextAsync(cancellationToken: cancellationToken)
             ?? string.Empty;
 
-        if (string.IsNullOrWhiteSpace(question))
+        bool hasSubmission = context.ClientHeaders.TryGetValue(
+            FinanceReplyProtocol.ClarificationHeader, out string? encodedSubmission);
+        if (string.IsNullOrWhiteSpace(question) && !hasSubmission)
         {
-            return "Ask me what a KPI means, for a figure, or why something moved.";
+            return new FinanceReply("Ask me what a KPI means, for a figure, or why something moved.");
         }
 
         string? assertion =
@@ -91,8 +107,8 @@ public sealed class ZavaFinanceResponseHandler : ResponseHandler
             // without a user would either fail or, worse, answer as the application.
             _logger.LogWarning("Refusing turn: {Reason}", ex.Message);
 
-            return "I could not confirm who you are, so I cannot look anything up on your "
-                + "behalf. Please sign in and try again.";
+            return new FinanceReply("I could not confirm who you are, so I cannot look anything up on your "
+                + "behalf. Please sign in and try again.");
         }
 
         // Derived from validated claims plus the conversation, inside the provider. There is no
@@ -106,18 +122,28 @@ public sealed class ZavaFinanceResponseHandler : ResponseHandler
 
         try
         {
-            return await _orchestrator.RunAsync(
+            ClarificationSubmission? submission = null;
+            if (hasSubmission)
+            {
+                try { submission = FinanceReplyProtocol.DecodeSubmission(encodedSubmission!); }
+                catch (InvalidDataException)
+                {
+                    return new FinanceReply("That clarification selection is invalid. Please ask the statement again.");
+                }
+            }
+            return await _orchestrator.RunReplyAsync(
                 _routingAgent,
                 tokenProvider,
                 sessionKey,
                 question,
+                submission,
                 cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Turn failed.");
 
-            return "Something went wrong answering that. Please try again.";
+            return new FinanceReply("Something went wrong answering that. Please try again.");
         }
     }
 

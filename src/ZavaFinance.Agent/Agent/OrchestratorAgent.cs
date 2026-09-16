@@ -9,6 +9,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OpenAI.Responses;
+using ZavaFinance.Contracts;
 using ZavaFinance.Core.Abstractions;
 using ZavaFinance.Core.Configuration;
 using ZavaFinance.Core.CopilotStudio;
@@ -61,6 +62,10 @@ public sealed class OrchestratorAgent
         Never answer a KPI or statement question yourself. Never invent missing arguments.
         For an unknown business argument, omit it if optional or supply an empty string.
         Never invent values just to fill function arguments.
+        For get_statement, extract the user's KPI, organization and complete date terms
+        verbatim before canonicalization. Never convert a vague KPI to a particular KPI, drop
+        an unknown date word, or broaden a local organization to a region or company.
+        The host resolves catalogue identities and handles clarification choices.
         The host executes the selected tool and returns its result verbatim. Tool results
         are withheld from your history; result markers contain no financial information and
         are not evidence of success. Always call a tool again for a fresh finance answer.
@@ -75,6 +80,15 @@ public sealed class OrchestratorAgent
     private readonly TimeProvider _timeProvider;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<OrchestratorAgent> _logger;
+    private readonly IResolverSearch? _resolverSearch;
+    private readonly ResolverOptions _resolverOptions;
+    private readonly Dictionary<string, TurnGate> _turnLocks = new(StringComparer.Ordinal);
+
+    private sealed class TurnGate
+    {
+        public SemaphoreSlim Semaphore { get; } = new(1, 1);
+        public int Users { get; set; }
+    }
 
     public OrchestratorAgent(
         ICopilotStudioClientFactory clientFactory,
@@ -84,7 +98,9 @@ public sealed class OrchestratorAgent
         FabricOptions fabricOptions,
         OrchestratorOptions options,
         TimeProvider timeProvider,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IResolverSearch? resolverSearch = null,
+        ResolverOptions? resolverOptions = null)
     {
         _clientFactory = clientFactory;
         _sessionStore = sessionStore;
@@ -95,6 +111,8 @@ public sealed class OrchestratorAgent
         _timeProvider = timeProvider;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<OrchestratorAgent>();
+        _resolverSearch = resolverSearch;
+        _resolverOptions = resolverOptions ?? new ResolverOptions();
     }
 
     public static string SystemInstructions => SystemPrompt;
@@ -185,15 +203,74 @@ public sealed class OrchestratorAgent
         string sessionKey,
         string question,
         CancellationToken cancellationToken)
+        => (await RunReplyAsync(routingAgent, tokenProvider, sessionKey, question,
+            submission: null, cancellationToken)).Text;
+
+    public async Task<FinanceReply> RunReplyAsync(
+        AIAgent routingAgent, IDownstreamTokenProvider tokenProvider,
+        string sessionKey, string question, ClarificationSubmission? submission,
+        CancellationToken cancellationToken)
+    {
+        TurnGate gate;
+        lock (_turnLocks)
+        {
+            if (!_turnLocks.TryGetValue(sessionKey, out gate!))
+                _turnLocks.Add(sessionKey, gate = new TurnGate());
+            gate.Users++;
+        }
+        bool entered = false;
+        try
+        {
+            await gate.Semaphore.WaitAsync(cancellationToken);
+            entered = true;
+            return await RunReplyCoreAsync(routingAgent, tokenProvider, sessionKey, question,
+                submission, cancellationToken);
+        }
+        finally
+        {
+            if (entered) gate.Semaphore.Release();
+            lock (_turnLocks)
+            {
+                if (--gate.Users == 0)
+                {
+                    _turnLocks.Remove(sessionKey);
+                    gate.Semaphore.Dispose();
+                }
+            }
+        }
+    }
+
+    private async Task<FinanceReply> RunReplyCoreAsync(
+        AIAgent routingAgent, IDownstreamTokenProvider tokenProvider,
+        string sessionKey, string question, ClarificationSubmission? submission,
+        CancellationToken cancellationToken)
     {
         OrchestratorSessionState state =
             await _sessionStore.LoadAsync(sessionKey, cancellationToken);
+        bool reset = submission is null && ClarificationSelection.IsReset(question);
+        if (reset) state = new OrchestratorSessionState();
 
         AgentSession session =
             await LoadSessionAsync(routingAgent, state, cancellationToken);
 
         try
         {
+            if (reset) return new FinanceReply("The conversation has been reset. What would you like to ask?");
+            bool textSelection = submission is null
+                && ClarificationSelection.TryRead(question, state.PendingClarification, out submission);
+            if (submission is not null || textSelection)
+            {
+                if (state.PendingClarification is null)
+                    return new FinanceReply("There is no valid pending choice for that selection. Please ask the statement again.");
+                if (submission is null)
+                    return new FinanceReply("That selection does not uniquely identify a pending option. Please reply with its option number.");
+                string text = await CreateStatementTool(tokenProvider, state, sessionKey)
+                    .ContinueAsync(submission, cancellationToken);
+                return new FinanceReply(text, state.ReplyClarification);
+            }
+            // A new request supersedes old cards; the next selection cannot resume old arguments.
+            state.PendingClarification = null;
+            state.ReplyClarification = null;
             AgentResponse response = await SelectToolAsync(
                 routingAgent, question, session, cancellationToken, _options.MaxHistoryMessages);
             FunctionCallContent? call = response.Messages.SelectMany(message => message.Contents)
@@ -204,15 +281,16 @@ public sealed class OrchestratorAgent
                 "Model selected {Tool}.", toolName);
 
             cancellationToken.ThrowIfCancellationRequested();
-            return call is not null
-                ? await InvokeToolAsync(call, CreateToolFactories(tokenProvider, state), cancellationToken)
+            string answer = call is not null
+                ? await InvokeToolAsync(call, CreateToolFactories(tokenProvider, state, sessionKey), cancellationToken)
                 : response.Text;
+            return new FinanceReply(answer, state.ReplyClarification);
         }
         catch (ToolSelectionException ex)
         {
             _logger.LogWarning(ex, "Rejected invalid native function selection.");
-            return "I could not select a valid finance tool for that request. Please try asking "
-                + "one KPI definition, statement, or finance analysis question at a time.";
+            return new FinanceReply("I could not select a valid finance tool for that request. Please try asking "
+                + "one KPI definition, statement, or finance analysis question at a time.");
         }
         finally
         {
@@ -361,7 +439,8 @@ public sealed class OrchestratorAgent
 
     private Dictionary<Type, Func<object>> CreateToolFactories(
         IDownstreamTokenProvider tokenProvider,
-        OrchestratorSessionState state)
+        OrchestratorSessionState state,
+        string sessionKey)
     {
         // Factories are local to this turn; only the selected tool and its client are created.
         return new()
@@ -369,15 +448,19 @@ public sealed class OrchestratorAgent
             [typeof(KpiInfoTool)] = () => new KpiInfoTool(
                 _clientFactory, tokenProvider, state, _options,
                 _loggerFactory.CreateLogger<KpiInfoTool>()),
-            [typeof(StatementTool)] = () => new StatementTool(
-                _statementQueryFactory.Create(tokenProvider), state,
-                DateOnly.FromDateTime(_timeProvider.GetUtcNow().UtcDateTime),
-                _loggerFactory.CreateLogger<StatementTool>()),
+            [typeof(StatementTool)] = () => CreateStatementTool(tokenProvider, state, sessionKey),
             [typeof(ExploreFinanceTool)] = () => new ExploreFinanceTool(
                 _dataAgentFactory.Create(tokenProvider), _fabricOptions,
                 _loggerFactory.CreateLogger<ExploreFinanceTool>())
         };
     }
+
+    private StatementTool CreateStatementTool(
+        IDownstreamTokenProvider tokenProvider, OrchestratorSessionState state, string sessionKey) =>
+        new(_statementQueryFactory.Create(tokenProvider), state,
+            DateOnly.FromDateTime(_timeProvider.GetUtcNow().UtcDateTime),
+            _loggerFactory.CreateLogger<StatementTool>(), _resolverSearch, sessionKey,
+            _timeProvider, _resolverOptions);
 
     internal static async Task<string> InvokeToolAsync(
         FunctionCallContent call,
