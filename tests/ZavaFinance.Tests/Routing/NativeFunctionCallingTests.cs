@@ -232,11 +232,13 @@ public sealed class NativeFunctionCallingTests
         Assert.DoesNotContain(FakeTokens.Token, stored.AgentSessionJson!);
     }
 
-    [Fact]
-    public async Task ExecutesOnceWithCallerIdentityAndReturnsTheExactStatement()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecutesOnceWithCallerIdentityAndReturnsTheExactStatement(bool reasoningEnabled)
     {
         using var chat = new FakeChatClient(StatementCall("call-1"));
-        var fixture = new Fixture(chat);
+        var fixture = new Fixture(chat, foundryOptions: new FoundryOptions { ReasoningEnabled = reasoningEnabled });
         string answer = await fixture.RunAsync("Show Net Revenue for EMEA in Q2 2026");
         Assert.Equal(StatementTool.Render(Assert.IsType<StatementResult>(fixture.Query.Result)), answer);
         Assert.Contains("Source: Zava finance lakehouse", answer);
@@ -568,10 +570,11 @@ public sealed class NativeFunctionCallingTests
     private sealed class Fixture
     {
         public Fixture(IChatClient chat, IFabricDataAgentClientFactory? fabric = null,
-            FabricOptions? fabricOptions = null, OrchestratorOptions? options = null)
+            FabricOptions? fabricOptions = null, OrchestratorOptions? options = null,
+            FoundryOptions? foundryOptions = null)
         {
             Statements = new StatementFactory(Query);
-            Agent = OrchestratorAgent.CreateRoutingAgent(chat, new FoundryOptions());
+            Agent = OrchestratorAgent.CreateRoutingAgent(chat, foundryOptions ?? new FoundryOptions());
             Orchestrator = new OrchestratorAgent(OtherTools, Store, Statements, fabric ?? OtherTools,
                 fabricOptions ?? new FabricOptions(), options ?? new OrchestratorOptions(), TimeProvider.System,
                 NullLoggerFactory.Instance);

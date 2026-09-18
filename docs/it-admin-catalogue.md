@@ -1,7 +1,7 @@
 # ZavaFinance — IT administration and policy review catalogue
 
 **Audience:** Azure platform, networking, Entra, Fabric, Power Platform, security and service
-operations teams. **Review date:** 16 September 2026. This document contains no tenant-specific
+operations teams. **Review date:** 17 September 2026. This document contains no tenant-specific
 identifiers or credentials and can be shared with a customer before their Azure Policies arrive.
 
 This is a **provisioning and acceptance specification**, not evidence of a production deployment.
@@ -9,7 +9,53 @@ Dev is the existing demonstration environment; staging and production are **desi
 remain undeployed**. No resources are deployed by the templates merely being present.
 Sizing below is a recommendation, not a measured throughput or availability guarantee.
 
+Finance/controller project owners should start with the companion
+[architecture and ownership guide](finance-controller-architecture.md) and
+[service-by-service explanation](azure-services-for-controllers.md). They explain business
+controls, code responsibilities and each service's purpose without requiring Azure expertise.
+The Python code will be provided separately; this catalogue still records the deployed C# baseline.
+
+### Separate One experiment
+
+The `activity-protocol` branch adds **Zava Finance One**, not a replacement for
+the baseline catalogued below. Its separate Bot calls a native Activity endpoint
+inside its own Foundry hosted agent. One uses GPT-5.4-mini (**GA**) and an
+explicitly approved, source-built **unreleased** Activity adapter.
+
+One does not use the Channel Function App, its dedicated plan, delivery Storage
+or Durable Task Scheduler. Native in-memory queues allow slow operations but
+provide **no crash recovery**. Restarted in-flight requests require a user retry.
+The existing three tools and delegated finance permission checks remain unchanged.
+
+Administration differences:
+
+- Separate Bot/runtime identity; reuse the existing authorized finance OAuth app
+  in the new Bot's `mcs` connection.
+- Separate HMAC session salt and `zavafinance-one-sessions` state store.
+- Persisted finance state is not a durable task checkpoint. Native OAuth
+  continuation uses process-local MemoryStorage, not shared or crash-persistent storage.
+- New runtime needs only Search Index Data Reader on resolver Search and
+  Cognitive Services OpenAI User on the model account for these dependencies.
+- Activity ingress uses BotServiceRbac; finance permissions are still checked
+  independently using the signed-in user's assertion.
+- Do not remove or repoint baseline resources. Deploy/configure only One.
+- Healthy startup/readiness, app installation, interactive sign-in and a cached-token
+  reset have been verified. **Initial silent SSO remains unresolved** after a
+  credential/MFA challenge; live cards, Fabric finance and two-user isolation remain gates.
+- Distinct Bot and OAuth app IDs are supported in general; their difference alone
+  does not establish the SSO root cause. Do not change the shared app's audience,
+  consent or MFA policy, or add SDK OBO settings as a speculative initial-SSO fix.
+- Use the custom branded finance ZIP, not the generic package generated beside One.Host.
+  Local source fixes are newer than deployed One v1; test counts are not deployment evidence.
+
+See the [One implementation and deployment guide](../src/ZavaFinance.One/README.md)
+for the exact package pins, guarded commands and demo-specific resource identities.
+
 ## 1. Architecture and non-negotiable boundaries
+
+Sections below describe the **original baseline** unless One is explicitly named.
+Its Functions plan, DTS, Blob delivery state and forwarded Responses header are
+not additional One requirements.
 
 1. Teams and Microsoft 365 Copilot use Azure Bot Service, which calls the .NET 10 Azure Functions
    **Channel** on a dedicated Linux App Service plan. The channel validates Bot Service JWTs,
@@ -48,19 +94,25 @@ Sizing below is a recommendation, not a measured throughput or availability guar
 | Capability | Planning status |
 |---|---|
 | .NET 10, dedicated App Service, Storage, Entra, Azure AI Search hybrid/semantic features used here | GA service/runtime capabilities; regional SKU/quota and configuration still require validation |
-| Foundry hosted runtime/code deployment and its pinned agent-server SDK contract | **Preview in this application's release contract**; record exact SDK, protocol and platform version and obtain explicit approval |
-| Fabric Data Agent, its MCP integration and selected reasoning runtime | **Preview**; enable only for approved users/workspaces and approved geography |
+| Microsoft Agent Framework core and Foundry Hosted Agents | **GA**; the application's Responses and Core hosting libraries remain **prerelease** |
+| Fabric Data Agent and Standard runtime | **GA**; verify the runtime captured in the actual published agent |
+| Fabric advanced reasoning features and integrations | Feature-specific status: Preview runtime, Advanced NL2SQL/DAX and Foundry integrations remain **Preview**; Copilot Studio Fabric IQ Data MCP is **GA**. The application's legacy MCP route needs separate support verification |
 | Foundry role display names | `Azure AI User` was renamed **Foundry User**; the role GUID is unchanged. This is a rename, not a reason to recreate assignments |
 | System-provided hosted agent identity/network behavior | Evolving platform contract; inspect the deployed project/agent rather than assuming an old preview's identity model |
 
-The current Agent pins `Azure.AI.AgentServer.Responses` **1.0.0-beta.8** (Preview);
-the deployment uses the `azure.ai.agents` extension **>=1.0.0-beta.4**, `dotnet_10`
-and Responses protocol **2.0.0**. Its stable dependencies include Microsoft Agent Framework
+The current Agent directly pins prerelease `Azure.AI.AgentServer.Responses` **1.0.0-beta.8**,
+which resolves prerelease `Azure.AI.AgentServer.Core` **1.0.0-beta.28** for platform state
+integration. Both run inside the application; neither is the Microsoft-managed hosting service.
+The deployment requires the `azure.ai.agents` extension **>=1.0.0-beta.4** (a minimum range,
+not an exact pin), `dotnet_10` and Responses protocol **2.0.0** (not beta labels).
+Its stable dependencies include Microsoft Agent Framework
 `Microsoft.Agents.AI` **1.21.0**, `Microsoft.Agents.AI.Foundry` **1.5.0**, Copilot Studio client
 **1.8.77**, Azure AI Projects **2.0.1** and MCP Core **2.2.0**. The Channel stays on GA Agents SDK
 **1.8.77**, Functions isolated worker **2.52.0** and Durable/DTS extensions **1.16.4/1.6.0**;
-it does not adopt Preview durable-agent hosting packages. Project files are authoritative for
-the full direct/transitive package graph and must accompany release/SBOM review.
+it does not adopt Preview durable-agent hosting packages. Project files record direct references;
+capture the restored direct/transitive dependency graph and deployed artifacts for SBOM review.
+See the dated [availability and support register](availability-and-support.md), including the
+[Fabric feature boundaries](availability-and-support.md#fabric-feature-boundaries).
 
 Infrastructure pins Search AVM **0.13.0**. The inherited Bot ARM API is
 `2023-09-15-preview`; that **API-version policy exception** is distinct from Azure Bot Service
@@ -463,6 +515,7 @@ typed reply negotiation supplies the Channel with the structured options needed 
 |---|---|
 | `FOUNDRY_PROJECT_ENDPOINT` | **Platform-injected** in hosted runtime. Set explicitly only when running outside it; do not declare reserved `FOUNDRY_*`/`AGENT_*` variables in hosted deployment |
 | `ModelDeployment` | `gpt-4.1-mini` default; neutral deployed env name. Existing azd input: `AZURE_AI_MODEL_DEPLOYMENT_NAME` |
+| `ModelReasoningEnabled` | `false` default. Set `true` with the new variant's `gpt-5.4-mini` deployment to use low reasoning effort and omit temperature in both routing and reranking; internal model output storage remains disabled |
 | `Foundry__ProjectEndpoint`, `Foundry__ModelDeployment` | Local/test configuration aliases only; **not** hosted environment declarations |
 | `Orchestrator__SessionKeySalt` | Required tier-local **secret**; existing azd input `ORCHESTRATOR_SESSION_KEY_SALT` |
 | `Orchestrator__SessionTimeToLive` | `30.00:00:00` default; sliding session retention. Not a universal deletion policy for other stores |
@@ -667,7 +720,7 @@ Return this table with policy definition/initiative IDs, scopes, effect (`Deny`,
 | Area / decision needed | Evidence requested from customer | Blocker / action before promotion |
 |---|---|---|
 | Subscriptions, tenant, region allowlist | Allowed Azure/Fabric/Power Platform regions, cloud and resource placement | Hosted runtime, semantic ranker, DTS, P1v3 and chosen model/SKU must all be supported with quota |
-| Preview use | Explicit hosted runtime, SDK, Fabric Data Agent/MCP/runtime approval | Denied Preview means architecture/release change, not relabeling as GA |
+| Preview/prerelease use | Approval for the exact beta hosting libraries, selected preview APIs and any Preview Fabric runtime/features; consult the availability register | Service GA does not waive those exceptions. Denial requires changing the affected selection, not relabeling it |
 | Resource providers / allowed types | Registration rights and allowed `Microsoft.Web`, `Storage`, `Network`, `ManagedIdentity`, `DurableTask`, `BotService`, `CognitiveServices`, `Search`, `Insights`, `OperationalInsights`; ACR/Key Vault if selected | Provider/type denial blocks its dependent component; Entra/Fabric/Power Platform may have separate gates |
 | Allowed SKUs/capacity | P1v3/Linux, LRS/ZRS, Search S1/replicas, DTS Consumption/Dedicated, model deployment SKU/quota, existing Fabric F2 | No silent upgrade, new capacity or downgrade to unsupported Free Search |
 | Public endpoints | Per-service decision for Bot ingress, SCM, Foundry, model, Search, DTS, Fabric, Power Platform | A deny-public policy can make a service unreachable despite successful ARM deployment |

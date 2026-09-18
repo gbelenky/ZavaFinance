@@ -75,5 +75,127 @@ services:
       resources:
         cpu: '1'
         memory: 2Gi
+  zavafinance-one:
+    host: azure.ai.agent
+    project: src/ZavaFinance.One.Host
+    language: csharp
+    codeConfiguration:
+      runtime: dotnet_10
+      entryPoint: ZavaFinance.One.Host.dll
+      dependencyResolution: bundled
+    kind: hosted
+    name: zavafinance-one
+    displayName: Zava Finance One
+    description: >-
+      Experimental native Activity finance agent. Uses the same delegated finance tools
+      and orchestration as Zava Finance. In-flight requests are not recovered after a restart.
+    protocols:
+      - protocol: activity
+        version: 2.0.0
+    agentEndpoint:
+      protocols:
+        - activity
+      authorizationSchemes:
+        - type: BotServiceRbac
+    environmentVariables:
+      - name: ModelDeployment
+        value: gpt-5.4-mini
+      - name: ModelReasoningEnabled
+        value: 'true'
+      - name: Orchestrator__SessionKeySalt
+        value: ${ONE_SESSION_KEY_SALT}
+      - name: Orchestrator__LogSubagentText
+        value: 'false'
+      - name: Obo__ClientId
+        value: ${OBO_CLIENT_ID}
+      - name: Obo__TenantId
+        value: ${OBO_TENANT_ID}
+      - name: Obo__Audience
+        value: ${OBO_AUDIENCE}
+      - name: Obo__ClientSecret
+        value: ${OBO_CLIENT_SECRET}
+      - name: CopilotStudioAgent__EnvironmentId
+        value: ${COPILOT_STUDIO_ENVIRONMENT_ID}
+      - name: CopilotStudioAgent__SchemaName
+        value: ${COPILOT_STUDIO_SCHEMA_NAME}
+      - name: Fabric__SqlEndpoint
+        value: ${FABRIC_SQL_ENDPOINT}
+      - name: Fabric__Database
+        value: ${FABRIC_DATABASE}
+      - name: Fabric__WorkspaceId
+        value: ${FABRIC_WORKSPACE_ID}
+      - name: Fabric__DataAgentId
+        value: ${FABRIC_DATA_AGENT_ID}
+      - name: Resolver__SearchEndpoint
+        value: ${RESOLVER_SEARCH_ENDPOINT}
+      - name: Resolver__SemanticConfigurationName
+        value: resolver-semantic
+      - name: Resolver__EmbeddingEndpoint
+        value: ${RESOLVER_EMBEDDING_ENDPOINT}
+    container:
+      resources:
+        cpu: '1'
+        memory: 2Gi
+  zavafinance-one-python:
+    host: azure.ai.agent
+    project: src/ZavaFinance.One.Python
+    language: python
+    codeConfiguration:
+      runtime: python_3_13
+      entryPoint: main.py
+      dependencyResolution: remote_build
+    kind: hosted
+    name: zavafinance-one-python
+    displayName: Zava Finance One Python
+    description: >-
+      Standalone Python native Activity finance agent with delegated finance tools,
+      deterministic statements and caller-isolated state. Experimental: no in-flight recovery.
+    protocols:
+      - protocol: activity
+        version: 2.0.0
+    agentEndpoint:
+      protocols:
+        - activity
+      authorizationSchemes:
+        - type: BotServiceRbac
+    environmentVariables:
+      - name: OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT
+        value: 'false'
+      - name: ModelDeployment
+        value: gpt-5.4-mini
+      - name: ModelReasoningEnabled
+        value: 'true'
+      - name: PYTHON_SESSION_KEY_SALT
+        value: ${PYTHON_SESSION_KEY_SALT}
+      - name: OBO_CLIENT_ID
+        value: ${OBO_CLIENT_ID}
+      - name: OBO_TENANT_ID
+        value: ${OBO_TENANT_ID}
+      - name: OBO_AUDIENCE
+        value: ${OBO_AUDIENCE}
+      - name: OBO_CLIENT_SECRET
+        value: ${OBO_CLIENT_SECRET}
+      - name: COPILOT_STUDIO_ENVIRONMENT_ID
+        value: ${COPILOT_STUDIO_ENVIRONMENT_ID}
+      - name: COPILOT_STUDIO_SCHEMA_NAME
+        value: ${COPILOT_STUDIO_SCHEMA_NAME}
+      - name: FABRIC_SQL_ENDPOINT
+        value: ${FABRIC_SQL_ENDPOINT}
+      - name: FABRIC_DATABASE
+        value: ${FABRIC_DATABASE}
+      - name: FABRIC_WORKSPACE_ID
+        value: ${FABRIC_WORKSPACE_ID}
+      - name: FABRIC_DATA_AGENT_ID
+        value: ${FABRIC_DATA_AGENT_ID}
+      - name: RESOLVER_SEARCH_ENDPOINT
+        value: ${RESOLVER_SEARCH_ENDPOINT}
+      - name: RESOLVER_SEMANTIC_CONFIGURATION
+        value: resolver-semantic
+      - name: RESOLVER_EMBEDDING_ENDPOINT
+        value: ${RESOLVER_EMBEDDING_ENDPOINT}
+    container:
+      resources:
+        cpu: '1'
+        memory: 2Gi
 infra:
   provider: microsoft.foundry

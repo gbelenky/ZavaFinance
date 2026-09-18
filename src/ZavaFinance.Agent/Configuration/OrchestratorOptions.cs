@@ -54,4 +54,10 @@ public sealed class FoundryOptions
     public string ProjectEndpoint { get; set; } = string.Empty;
 
     public string ModelDeployment { get; set; } = "gpt-4.1-mini";
+
+    /// <summary>
+    /// Opts into low-effort reasoning and omits temperature for both routing and reranking.
+    /// Set from the deployment's known capabilities, not its arbitrary deployment name.
+    /// </summary>
+    public bool ReasoningEnabled { get; set; }
 }

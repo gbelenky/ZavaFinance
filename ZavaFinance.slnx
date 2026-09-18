@@ -2,8 +2,16 @@
   <Folder Name="/src/">
     <Project Path="src/ZavaFinance.Agent/ZavaFinance.Agent.csproj" />
     <Project Path="src/ZavaFinance.Channel/ZavaFinance.Channel.csproj" />
+    <Project Path="src/ZavaFinance.Activity/ZavaFinance.Activity.csproj" />
     <Project Path="src/ZavaFinance.Agent/Identity/ZavaFinance.Identity.csproj" />
+    <Project Path="src/ZavaFinance.One.Host/ZavaFinance.One.Host.csproj" />
+    <Project Path="src/ZavaFinance.One/ZavaFinance.One.csproj" />
   </Folder>
+  <Folder Name="/src/ZavaFinance.Agent/" />
+  <Folder Name="/src/ZavaFinance.Agent/Contracts/">
+    <Project Path="src/ZavaFinance.Agent/Contracts/ZavaFinance.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/src/ZavaFinance.Agent/Identity/" />
   <Folder Name="/tests/">
     <Project Path="tests/ZavaFinance.Tests/ZavaFinance.Tests.csproj" />
   </Folder>

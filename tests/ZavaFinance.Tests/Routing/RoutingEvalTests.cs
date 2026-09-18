@@ -34,7 +34,8 @@ public sealed class RoutingAgentFixture
             new FoundryOptions
             {
                 ProjectEndpoint = FoundryTestEnvironment.ProjectEndpoint!,
-                ModelDeployment = FoundryTestEnvironment.ModelDeployment!
+                ModelDeployment = FoundryTestEnvironment.ModelDeployment!,
+                ReasoningEnabled = FoundryTestEnvironment.ReasoningEnabled
             });
     }
 

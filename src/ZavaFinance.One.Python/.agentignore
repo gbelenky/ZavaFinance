@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.env.*
+.foundry/
+.azure/
+tests/
+.pytest_cache/
+.coverage
+build/
+dist/
+appPackage.zip

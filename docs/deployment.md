@@ -6,6 +6,32 @@ have been compiled/reviewed locally; only explicitly recorded demo checks below 
 deployment evidence.
 Read the [IT-admin catalogue](it-admin-catalogue.md) for all identities, configuration,
 dependencies, customer policy questions and acceptance gates.
+Before approving a release, also review the dated
+[availability and support register](availability-and-support.md). A GA hosting service does not
+remove the application's prerelease SDK or preview API exceptions.
+
+## Activity-protocol branch: choose the application first
+
+This runbook's tier provisioning and Channel rollout steps describe the **original
+two-host deployment**. The branch also contains **Zava Finance One**. Never run an
+unscoped `azd deploy` to update one of them: the manifest also contains a separate Python service.
+
+| Target | Deployment boundary | Application guide |
+| --- | --- | --- |
+| Original Zava Finance | Explicit `zavafinance` service and separately approved Channel deployment | This runbook |
+| Zava Finance One | Explicit `zavafinance-one` service, then guarded One configuration script | [One build/deploy guide](../src/ZavaFinance.One/README.md#reproducible-build-and-isolated-deployment) |
+| Zava Finance One Python | Explicit `zavafinance-one-python` service and `configure-one-channel.ps1 -Variant Python` | [Standalone Python guide](../src/ZavaFinance.One.Python/README.md) |
+
+One uses a portable, locked, framework-dependent .NET publish and native Activity
+2.0.0 with BotServiceRbac. It does not use the Channel Function App, P1v3 plan,
+delivery Storage or DTS. Do not run `main.bicep`, repoint the original Bot, or
+remove its resources for One. No crash recovery is enabled.
+
+Use [the branded One ZIP](../appPackage/one/build/zavafinance-one.zip), not the
+generic One.Host `appPackage.zip`. One is installed and interactive authentication
+works, but initial silent SSO remains unresolved. Local rejected-invoke fixes
+and passing tests are newer than deployed v1. Fabric remains paused; obtain
+approval before resuming it for finance acceptance and pause it afterward.
 
 ## Choose the smallest deployment boundary
 
@@ -15,6 +41,9 @@ dependencies, customer policy questions and acceptance gates.
 | `infra\search.bicep` | Dedicated Search service through **AVM 0.13.0**, RBAC-only auth, paid semantic ranker, optional PE/DNS group and diagnostics, runtime/publisher roles | Existing Channel/Storage/Foundry resources; Search index/documents; hosted VNet injection; new DNS zones/VNet links |
 | `infra\model-access.bicep` | Runtime and optional publisher **Cognitive Services OpenAI User** roles on an existing model account | Model deployment or quota; no model/account replacement; `assignPublisherAccess=false` preserves an existing publisher grant |
 | `infra\foundry-access.bicep` | Channel project access and optional project MI/account access | Hosted Agent version, endpoint protocol migration or Entra permissions |
+| `infra\one-oauth.bicep` | Only the separate One Bot's `mcs` OAuth child | Original Bot or shared Entra app/consent; does not establish silent SSO |
+| `infra\one-search-access.bicep` | Search Index Data Reader for One's runtime on existing Search | Search service/index or publisher permissions |
+| `scripts\configure-one-channel.ps1` | Guarded One OAuth, missing Search/model grants, tags and branded app package | Original Bot, new finance permissions, recovery or tenant-wide publication |
 | `infra\registry-access.bicep` | Platform image-pull and optional CI image-push roles on an existing ACR | Registry creation/network changes; no runtime push access |
 | `infra\environments\*.bicepparam` | Tier-specific ARM inputs read from process environment | No implicit subscription selection; no stored secret defaults |
 | `infra\environments\*.agent.env.example` | Exact application settings contract with tier-specific input references | No automatic dotenv loader, no replacement of `azure.yaml`, no actual secret values |
@@ -24,7 +53,7 @@ dependencies, customer policy questions and acceptance gates.
 Do not apply `main.bicep` or a new-tier channel parameter file merely to add Search. That would
 also reconcile existing App Service, settings, RBAC and networking and could change state IDs.
 
-For this add-on, use standalone Search/model-access ARM operations and **code-only `azd deploy`**
+For this original-app add-on, use standalone Search/model-access ARM operations and **code-only `azd deploy zavafinance`**
 for the hosted Agent. Do not run global `azd provision`, `azd provision --preview` or `azd up`:
 global infrastructure discovery can select the Channel's `infra/main.bicep` and request its
 unrelated parameters, including `botAppId`. That is not a reason to provision the Channel again.

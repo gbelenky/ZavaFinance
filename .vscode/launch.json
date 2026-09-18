@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Zava Finance One Python: debug native boundary tests",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}\\src\\ZavaFinance.One.Python\\.venv\\Scripts\\python.exe",
+            "module": "unittest",
+            "args": ["tests.test_activity", "tests.test_identity", "tests.test_cards", "tests.test_wire", "-v"],
+            "cwd": "${workspaceFolder}\\src\\ZavaFinance.One.Python",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}

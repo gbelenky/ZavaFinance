@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using System.Net;
 using System.Text.Json;
 using Azure.Core;
@@ -6,6 +7,7 @@ using Azure.Identity;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using OpenAI;
 using OpenAI.Responses;
 using ZavaFinance.Core.Configuration;
 using ZavaFinance.Core.Finance;
@@ -93,10 +95,63 @@ public sealed class AzureResolverSearchTests
             .GetProperty("id").GetString());
         Assert.Null(chat.Options!.Tools);
         Assert.Equal("gpt-4.1-mini", chat.Options.ModelId);
+        Assert.Equal(0, chat.Options.Temperature);
         Assert.IsType<ChatResponseFormatJson>(chat.Options.ResponseFormat);
         var raw = Assert.IsType<CreateResponseOptions>(chat.Options.RawRepresentationFactory!(chat));
         Assert.False(raw.StoredOutputEnabled);
+        Assert.Null(raw.ReasoningOptions);
         Assert.Empty(handler.Bodies);
+    }
+
+    [Theory]
+    [InlineData(false, "gpt-4.1-mini")]
+    [InlineData(true, "gpt-5.4-mini")]
+    [InlineData(true, "custom-reranking-deployment")]
+    [InlineData(false, "gpt-5.4-mini")]
+    public async Task CandidateChoiceWireUsesExplicitCapabilitiesWithoutChangingStrictSchema(
+        bool reasoningEnabled, string modelDeployment)
+    {
+        using var handler = new ChoiceModelHandler();
+        using var http = new HttpClient(handler);
+        var openAI = new OpenAIClient(new ApiKeyCredential("unit-test-not-a-key"), new OpenAIClientOptions
+        {
+            Endpoint = new Uri("https://model.example.test"),
+            Transport = new HttpClientPipelineTransport(http)
+        });
+        using IChatClient chat = openAI.GetResponsesClient().AsIChatClient(modelDeployment);
+        var candidate = ResolverTestData.Entity("candidate-one", "kpi", "Operating result", code: "KPI-011");
+        var credential = new Credential();
+        var resolver = new AzureResolverSearch(http, credential, new ResolverOptions(), chat, modelDeployment,
+            NullLogger<AzureResolverSearch>.Instance, reasoningEnabled: reasoningEnabled);
+
+        Assert.Equal(["candidate-one"], await resolver.ChooseAsync(
+            "earnings", "kpi", [candidate], CancellationToken.None));
+
+        JsonElement body = Assert.Single(handler.Bodies);
+        Assert.Equal(modelDeployment, body.GetProperty("model").GetString());
+        if (reasoningEnabled)
+        {
+            Assert.False(body.TryGetProperty("temperature", out _));
+            Assert.Equal("low", body.GetProperty("reasoning").GetProperty("effort").GetString());
+        }
+        else
+        {
+            Assert.Equal(0, body.GetProperty("temperature").GetDouble());
+            Assert.False(body.TryGetProperty("reasoning", out _));
+        }
+        Assert.False(body.GetProperty("store").GetBoolean());
+        Assert.False(body.TryGetProperty("tools", out _));
+        Assert.False(body.TryGetProperty("previous_response_id", out _));
+        Assert.False(body.TryGetProperty("conversation", out _));
+        JsonElement format = body.GetProperty("text").GetProperty("format");
+        Assert.Equal("json_schema", format.GetProperty("type").GetString());
+        Assert.Equal("resolver_choices", format.GetProperty("name").GetString());
+        JsonElement schema = format.GetProperty("schema");
+        Assert.False(schema.GetProperty("additionalProperties").GetBoolean());
+        Assert.Equal("ids", Assert.Single(schema.GetProperty("required").EnumerateArray()).GetString());
+        Assert.Equal("candidate-one", Assert.Single(schema.GetProperty("properties").GetProperty("ids")
+            .GetProperty("items").GetProperty("enum").EnumerateArray()).GetString());
+        Assert.Empty(credential.Scopes);
     }
 
     [Theory]
@@ -458,6 +513,31 @@ public sealed class AzureResolverSearchTests
                     ? EmbeddingResponse ?? JsonSerializer.Serialize(new { data = new[] { new { index = 0,
                         embedding = Enumerable.Repeat(0.1, EmbeddingDimensions).ToArray() } } })
                     : SearchResponse ?? """{"value":[{"entity_id":"candidate-one","catalog_version":"v1","canonical_name":"NEVER READ THIS SEARCH TEXT"}]}""")
+            };
+        }
+    }
+
+    private sealed class ChoiceModelHandler : HttpMessageHandler
+    {
+        public List<JsonElement> Bodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Bodies.Add(JsonSerializer.Deserialize<JsonElement>(
+                await request.Content!.ReadAsStringAsync(cancellationToken)));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($$"""
+                    {
+                      "id": "resp_choice", "object": "response", "created_at": 1750000000,
+                      "model": "{{Bodies[^1].GetProperty("model").GetString()}}", "status": "completed",
+                      "output": [{
+                        "type": "message", "id": "msg_choice", "role": "assistant", "status": "completed",
+                        "content": [{"type": "output_text", "text": "{\"ids\":[\"candidate-one\"]}", "annotations": []}]
+                      }]
+                    }
+                    """, System.Text.Encoding.UTF8, "application/json")
             };
         }
     }

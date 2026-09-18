@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Foundry starts the DLL with dotnet; retain a portable, framework-dependent publish. -->
+    <SelfContained>false</SelfContained>
+    <UseAppHost>false</UseAppHost>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestorePackagesPath>$(MSBuildThisFileDirectory)..\..\.artifacts\one-sdk\packages</RestorePackagesPath>
+    <RestoreAdditionalProjectSources>$(RestoreAdditionalProjectSources);$(MSBuildThisFileDirectory)..\..\.artifacts\one-sdk\feed</RestoreAdditionalProjectSources>
+    <UserSecretsId>fb4e7eca-2f6a-41a6-b613-ca72dc04dc3d</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ZavaFinance.One\ZavaFinance.One.csproj" />
+    <PackageReference Include="Azure.AI.AgentServer.Activity" Version="[1.0.0-beta.1.source.dc9cca2d1f1c.core28.m3651877]" />
+  </ItemGroup>
+  <!-- The existing executable is used as a finance library, not as a second entrypoint.
+       Its RID and non-RID bootstrap files otherwise collide during transitive publish. -->
+  <Target Name="ExcludeOriginalHostBootstrapFiles" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.RelativePath)' == 'ZavaFinance.Agent.deps.json'           Or '%(ResolvedFileToPublish.RelativePath)' == 'ZavaFinance.Agent.runtimeconfig.json'           Or '%(ResolvedFileToPublish.RelativePath)' == 'ZavaFinance.Agent'           Or '%(ResolvedFileToPublish.RelativePath)' == 'ZavaFinance.Agent.exe'" />
+    </ItemGroup>
+  </Target>
+</Project>

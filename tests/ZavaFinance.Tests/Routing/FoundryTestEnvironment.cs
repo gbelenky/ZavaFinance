@@ -5,24 +5,29 @@ using Xunit;
 namespace ZavaFinance.Tests.Routing;
 
 /// <summary>
-/// Resolves the Foundry configuration the routing eval needs. The names match the Function App
-/// settings (<c>Foundry__ProjectEndpoint</c>, <c>Foundry__ModelDeployment</c>) so the same values
-/// work locally and in CI without a second naming convention.
+/// Resolves the routing eval configuration. Legacy Foundry__ names are local test settings;
+/// hosted-agent manifests must use neutral model settings because FOUNDRY_* is reserved.
 /// </summary>
 public static class FoundryTestEnvironment
 {
     public static string? ProjectEndpoint { get; } =
-        Environment.GetEnvironmentVariable("Foundry__ProjectEndpoint");
+        Environment.GetEnvironmentVariable("FOUNDRY_PROJECT_ENDPOINT")
+        ?? Environment.GetEnvironmentVariable("Foundry__ProjectEndpoint");
 
     public static string? ModelDeployment { get; } =
-        Environment.GetEnvironmentVariable("Foundry__ModelDeployment");
+        Environment.GetEnvironmentVariable("ModelDeployment")
+        ?? Environment.GetEnvironmentVariable("AZURE_AI_MODEL_DEPLOYMENT_NAME")
+        ?? Environment.GetEnvironmentVariable("Foundry__ModelDeployment");
+
+    public static bool ReasoningEnabled =>
+        bool.Parse(Environment.GetEnvironmentVariable("ModelReasoningEnabled") ?? "false");
 
     public static bool IsConfigured =>
         !string.IsNullOrWhiteSpace(ProjectEndpoint) && !string.IsNullOrWhiteSpace(ModelDeployment);
 
     public const string SkipReason =
-        "Routing eval skipped. Set Foundry__ProjectEndpoint and Foundry__ModelDeployment, and "
-        + "sign in with 'az login', to run the golden set against the real routing model.";
+        "Routing eval skipped. Set FOUNDRY_PROJECT_ENDPOINT and ModelDeployment, and use an Azure "
+        + "credential, to run the golden set. Set ModelReasoningEnabled=true for low-effort reasoning.";
 }
 
 /// <summary>

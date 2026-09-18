@@ -8,7 +8,6 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using OpenAI.Responses;
 using ZavaFinance.Contracts;
 using ZavaFinance.Core.Abstractions;
 using ZavaFinance.Core.Configuration;
@@ -143,33 +142,23 @@ public sealed class OrchestratorAgent
         IChatClient chatClient, FoundryOptions foundryOptions) =>
         new ChatClientAgent(chatClient, CreateAgentOptions(foundryOptions));
 
-    private static ChatClientAgentOptions CreateAgentOptions(FoundryOptions foundryOptions) =>
-        new()
+    private static ChatClientAgentOptions CreateAgentOptions(FoundryOptions foundryOptions)
+    {
+        ChatOptions chatOptions = ModelRequestOptions.Create(
+            foundryOptions.ModelDeployment, foundryOptions.ReasoningEnabled);
+        chatOptions.Instructions = SystemInstructions;
+        chatOptions.Tools = [.. ToolDeclarations];
+        chatOptions.ToolMode = ChatToolMode.Auto;
+        chatOptions.AllowMultipleToolCalls = false;
+
+        return new()
         {
             Name = AgentName,
             UseProvidedChatClientAsIs = true,
             ChatHistoryProvider = new InMemoryChatHistoryProvider(),
-            ChatOptions = new ChatOptions
-            {
-                ModelId = foundryOptions.ModelDeployment,
-                Instructions = SystemInstructions,
-                Tools = [.. ToolDeclarations],
-                ToolMode = ChatToolMode.Auto,
-                AllowMultipleToolCalls = false,
-                // Keep history local so the host controls call/result pairing without
-                // submitting the permissioned answer to a server-side conversation.
-                RawRepresentationFactory = _ => new CreateResponseOptions
-                {
-                    StoredOutputEnabled = false
-                },
-
-                // Routing is a classification, not a generation. Sampling was observed to flip
-                // borderline utterances between tools across identical runs, which means the same
-                // question can cost a ~51 s subagent call on one turn and not the next. It also
-                // makes the golden set a coin flip instead of a gate.
-                Temperature = 0
-            }
+            ChatOptions = chatOptions
         };
+    }
 
     private static AIFunctionDeclaration DeclareTool(MethodInfo method)
     {

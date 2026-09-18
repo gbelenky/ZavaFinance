@@ -24,16 +24,11 @@
   </ItemGroup>
 
   <!--
-    Azure.AI.AgentServer.Responses is the solution's only preview dependency, and it is confined
-    to this project. It implements the hosted-agent runtime contract: port 8088, GET /readiness,
-    POST /responses, SSE, graceful shutdown, and the x-client-* header forwarding this agent
-    depends on.
-
-    Its breaking changes across beta.2, beta.6 and beta.8 were all in resilient background
-    execution, steerable conversations and stream providers. None of those APIs are used here:
-    responses are returned whole, and conversation state is owned by this agent's own store. The
-    handler surface this project consumes - ResponseHandler.CreateAsync, ResponseContext
-    .ClientHeaders, GetInputTextAsync - has been stable since beta.1.
+    Foundry Hosted Agents is GA; this project's Responses hosting adapter remains prerelease.
+    Responses is the only direct prerelease reference and also brings in prerelease Core.
+    The adapter supplies HTTP/SSE hosting and x-client-* header forwarding; Core supplies the
+    platform state-store integration. Review both packages for compatibility before upgrading.
+    See docs/availability-and-support.md for the dated service, API and SDK distinctions.
   -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Agents.AI" Version="1.21.0" />

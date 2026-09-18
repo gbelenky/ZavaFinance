@@ -106,7 +106,7 @@ public sealed class CallerIdentityResolver : ICallerIdentityResolver
     /// Defence in depth. The token is authoritative; a disagreeing payload means one of the
     /// two is forged, so the turn fails rather than being reconciled.
     /// </summary>
-    private static void AssertPayloadAgrees(ITurnContext turnContext, CallerIdentity caller)
+    public static void AssertPayloadAgrees(ITurnContext turnContext, CallerIdentity caller)
     {
         string? payloadTenantId = turnContext.Activity?.Conversation?.TenantId;
 

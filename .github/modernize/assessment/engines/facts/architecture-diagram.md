@@ -2,6 +2,11 @@
 
 ZavaFinance separates channel delivery from finance-agent execution. The channel provides the Teams and Microsoft 365 Copilot entry point, while a Foundry hosted agent provides reusable routing, identity isolation, and delegated access to finance systems.
 
+For finance/controller code owners, use the [plain-language architecture and ownership guide](../../../../../docs/finance-controller-architecture.md) and [service-by-service explanation](../../../../../docs/azure-services-for-controllers.md).
+The first two diagrams describe the **original two-host deployment**. The separate
+[One architecture](#zava-finance-one-application-architecture) below describes
+`activity-protocol`: native Activity handling inside Foundry, with **no durable execution**.
+
 ## Application Architecture
 
 <!-- mermaid-checked: no \n, no em-dash/en-dash, no {} in labels, subgraphs are id["label"], arrows are -->|"label"|, all subgraphs closed by end, ids unique -->
@@ -85,9 +90,9 @@ flowchart TD
 | Channel | .NET, Azure Functions isolated worker | .NET 10, Functions v4 | Bot authentication, identity acquisition, acknowledgement, scheduling, and proactive delivery |
 | Channel workflow | Durable Task Scheduler | 1.25.0 client and worker | Executes slow turns outside the Bot Service response timeout with retries |
 | Channel state | Azure Blob Storage | Microsoft.Agents.Storage.Blobs 1.8.77 | Stores pending turns, conversation references, and idempotency records |
-| Hosted agent | Microsoft Foundry hosted agent | Azure.AI.AgentServer.Responses 1.0.0-beta.8 - Preview | Exposes the Responses API handler and runs the agent container |
+| Hosted agent | Microsoft Foundry Hosted Agents - GA service | Azure.AI.AgentServer.Responses 1.0.0-beta.8 - prerelease adapter | Adapter exposes the Responses handler inside the platform-hosted container |
 | Native function calling | Microsoft Agent Framework | Microsoft.Agents.AI 1.21.0 - GA | Model selects a tool; host validates and executes it without model answer synthesis |
-| Agent state | Foundry State Store | Platform managed | Stores per-user routing state and downstream conversation handles |
+| Agent state | Foundry State Store | Platform managed; Core 1.0.0-beta.28 prerelease integration | Stores per-user routing state and downstream conversation handles |
 | Identity | Microsoft Entra ID and MSAL OBO | Microsoft.Identity.Client 4.89.0 | Validates user assertions and obtains delegated downstream tokens |
 | KPI knowledge | Copilot Studio agent | Microsoft.Agents.CopilotStudio.Client 1.8.77 - GA | Returns sourced KPI definitions and calculations |
 | Structured finance | Fabric lakehouse SQL analytics endpoint | Microsoft.Data.SqlClient 6.1.4 - GA | Executes parameterized KPI statement queries under user permissions |
@@ -203,3 +208,113 @@ flowchart LR
 | `FabricStatementQuery` | Data and integration | SQL repository | Executes parameterized Fabric SQL and returns additive finance components |
 | `FabricDataAgentClient` | Data and integration | MCP client | Discovers and calls the published Fabric data-agent tool |
 | `IDownstreamTokenProvider` | Data and integration | Authentication abstraction | Supplies caller-bound delegated tokens inside the hosted agent |
+
+## Zava Finance One application architecture
+
+One retains finance behavior but combines channel and finance code in one native
+host. Its Bot, runtime identity, session salt and finance state store are separate
+from the original. Shared boxes below represent dependencies, not shared caller state.
+
+<!-- mermaid-checked: no \n, no em-dash/en-dash, no {} in labels, subgraphs are id["label"], arrows are -->|"label"|, all subgraphs closed by end, ids unique -->
+```mermaid
+flowchart TD
+    oneClient["Teams or Microsoft 365 Copilot"]
+    oneBot["Separate One Azure Bot"]
+    oneGateway["Foundry Activity gateway - BotServiceRbac"]
+    subgraph oneHost["One native .NET hosted agent"]
+        oneBoundary["M365 Activity handling and in-memory work"]
+        oneAuth["User assertion validation and delegated OBO"]
+        oneFinance["Existing finance orchestration and resolver"]
+        oneCards["Shared clickable card renderer"]
+        oneOAuth[("Process-local OAuth continuation")]
+    end
+    subgraph oneDependencies["Existing finance and platform services"]
+        oneModel["GPT-5.4-mini routing and reranking"]
+        oneSearch["Search and terminology embeddings"]
+        oneSql[("Fabric SQL facts and catalogue")]
+        oneKpi["Copilot Studio KPIpedia"]
+        oneExplore["Fabric Data Agent"]
+        oneState[("Separate One finance conversation state")]
+        oneMonitor["Application Insights"]
+    end
+    oneClient -->|"activity"| oneBot
+    oneBot -->|"native Activity endpoint"| oneGateway
+    oneGateway -->|"trusted platform ingress"| oneBoundary
+    oneBoundary -->|"sign-in continuation"| oneOAuth
+    oneBoundary -->|"acquire and validate human assertion"| oneAuth
+    oneAuth -->|"validated caller and token provider"| oneFinance
+    oneFinance -->|"caller-isolated load and save"| oneState
+    oneFinance -->|"native function selection"| oneModel
+    oneFinance -->|"candidate retrieval"| oneSearch
+    oneFinance -->|"delegated fixed SQL"| oneSql
+    oneFinance -->|"delegated KPI definition"| oneKpi
+    oneFinance -->|"delegated exploration"| oneExplore
+    oneFinance -->|"verbatim answer or typed choices"| oneCards
+    oneCards -->|"single acknowledged connector reply"| oneBot
+    oneBot -->|"reply"| oneClient
+    oneBoundary -.->|"safe telemetry"| oneMonitor
+    oneFinance -.->|"safe telemetry"| oneMonitor
+```
+
+### One technology stack
+
+| Layer | Technology | Version/status | Purpose |
+| --- | --- | --- | --- |
+| Entry point | .NET and Foundry Hosted Agents | .NET 10; GA hosting service | Portable DLL executed by `dotnet_10` |
+| Activity host | Azure.AI.AgentServer.Activity | Unreleased source build `1.0.0-beta.1.source.dc9cca2d1f1c.core28.m3651877` | Native Activity 2.0.0; not the Responses bridge |
+| Channel SDK | Microsoft 365 Agents SDK | Stable 1.8.77 | Sign-in, invokes, queues and connector replies |
+| Finance | Existing MAF engine and tools | Microsoft.Agents.AI 1.21.0 | Same deterministic statements, resolver and delegated tools |
+| State | Foundry platform state store | Core beta.28 integration | Separate finance state, not executing-task checkpoints |
+
+No One Functions app, dedicated App Service plan, delivery Blob store or DTS is
+required. The native queue and OAuth continuation are process-local; accepted work
+can be lost on restart. Persisted finance memory does not add replay or recovery.
+Search/model access uses runtime identity; finance services still use the human's
+delegated permissions. Initial silent SSO and complete channel/finance acceptance
+remain open; see the [One evidence register](../../../../../src/ZavaFinance.One/README.md#deployed-experiment-and-acceptance-status).
+
+## One component relationships
+
+<!-- mermaid-checked: no \n, no em-dash/en-dash, no {} in labels, subgraphs are id["label"], arrows are -->|"label"|, all subgraphs closed by end, ids unique -->
+```mermaid
+flowchart LR
+    subgraph ocHost["Native host and presentation"]
+        ocEntry["One.Host Program"]
+        ocQueue["Native M365 queue and worker"]
+        ocApp["FinanceActivityApplication"]
+        ocCards["Shared ClarificationCard"]
+    end
+    subgraph ocIdentity["Shared identity controls"]
+        ocValidator["ActivityAssertionValidator"]
+        ocKeys["SessionKeyProvider"]
+        ocTokens["OboTokenProvider"]
+    end
+    subgraph ocFinance["Existing finance engine"]
+        ocRunner["FinanceActivityRunner"]
+        ocRouter["OrchestratorAgent"]
+        ocTools["Three tools and local resolver"]
+        ocStore["FoundrySessionStore - One"]
+    end
+    ocEntry -->|"typed host registration"| ocQueue
+    ocQueue -->|"fresh turn and scope"| ocApp
+    ocApp -->|"accepted invoke continuation"| ocQueue
+    ocApp -->|"cryptographic assertion validation"| ocValidator
+    ocApp -->|"validated caller"| ocKeys
+    ocApp -->|"validated assertion"| ocTokens
+    ocApp -->|"caller-scoped execution"| ocRunner
+    ocRunner -->|"reuse routing and execution"| ocRouter
+    ocRouter -->|"one selected function"| ocTools
+    ocTools -->|"delegated authorization"| ocTokens
+    ocRouter -->|"finance state only"| ocStore
+    ocApp -->|"validated typed reply"| ocCards
+```
+
+| Component | Layer | Type | Responsibility |
+| --- | --- | --- | --- |
+| One.Host Program | Hosting | Thin entry point | Starts typed Activity server and shared finance DI; no second Responses host |
+| FinanceActivityApplication | Presentation | Native AgentApplication | Authenticates messages/selections, normalizes invokes, sends one acknowledged reply |
+| Native queue/worker | Hosting | In-memory SDK services | Completes slow turns after HTTP acceptance; fresh DI/token acquisition, no crash replay |
+| ActivityAssertionValidator / SessionKeyProvider | Identity | Shared validation boundary | Validates human claims before session access; separate One HMAC salt |
+| FinanceActivityRunner / OrchestratorAgent | Finance | Adapter and reused engine | Preserves tool choice, reset, clarification and verbatim answers |
+| ClarificationCard | Presentation | Shared Activity library | Same numbered clickable rows; no radio/Continue step |
+| FoundrySessionStore | State | Reused typed store | Persists finance conversation state under a separate One store name |

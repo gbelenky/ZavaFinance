@@ -3,11 +3,13 @@ bin/
 obj/
 publish/
 artifacts/
+.artifacts/
 *.user
 
 ## Deployment artifacts
 deploy.zip
 *.zip
+*.azd-generated
 
 ## Secrets - never commit
 *.local
@@ -23,6 +25,8 @@ appsettings.Local.json
 
 ## App package build artifacts
 appPackage/build/
+appPackage/one/build/
+appPackage/python/build/
 
 ## IDE
 .vs/

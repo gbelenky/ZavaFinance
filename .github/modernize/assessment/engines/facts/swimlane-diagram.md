@@ -1,8 +1,65 @@
 # ZavaFinance Swimlane Diagram
 
-This swimlane shows the Teams and Microsoft 365 Copilot request path. It highlights the immediate acknowledgement, durable background processing, hosted-agent routing, delegated tool execution, and proactive delivery.
+The first paths describe the **original two-host deployment**, including its durable
+Channel workflow. The [One native path](#zava-finance-one-native-activity-turn) is
+separate and has no durable execution or persisted delivery record.
 
-## Teams and Microsoft 365 Copilot Turn
+## Zava Finance One native Activity turn
+
+Messages enter the SDK's background path. Supported clarification invokes validate
+the user and payload before enqueueing a normalized message, then return a protocol
+acknowledgement. The worker reacquires/validates the human token before finance access.
+Only the authenticated success path is shown; pending sign-in does not execute finance.
+
+<!-- mermaid-checked: no \n, no em-dash/en-dash, no {} in labels, subgraphs are id["label"], arrows are -->|"label"|, all subgraphs closed by end, ids unique -->
+```mermaid
+flowchart LR
+    subgraph nsUser["User"]
+        nsAsk["Ask or click a clarification row"]
+        nsAnswer["Receive text or clickable card"]
+    end
+    subgraph nsIngress["Bot and Foundry gateway"]
+        nsRoute["Route to One Activity endpoint"]
+        nsAck["HTTP or invoke acceptance"]
+        nsDeliver["Deliver connector reply"]
+    end
+    subgraph nsNative["One native Activity boundary"]
+        nsAdapter["M365 adapter"]
+        nsInvoke["Validate invoke identity and selection"]
+        nsQueue["In-memory queue"]
+        nsAuth["Fresh worker: acquire and validate assertion"]
+        nsRender["Render one text or card activity"]
+        nsConfirm["Require nonempty delivery ID"]
+    end
+    subgraph nsFinance["Finance code inside the same One host"]
+        nsState["Derive caller key and load One finance state"]
+        nsRun["Reuse router, resolver and one selected tool"]
+        nsSave["Save finance state, not a work checkpoint"]
+    end
+    subgraph nsData["Delegated finance services"]
+        nsTool["KPIpedia, Fabric SQL or Fabric Data Agent"]
+    end
+    nsAsk --> nsRoute --> nsAdapter
+    nsAdapter -->|"ordinary message"| nsQueue
+    nsAdapter -->|"clarification invoke"| nsInvoke
+    nsInvoke -->|"normalized message"| nsQueue
+    nsQueue -->|"accepted, not completed"| nsAck
+    nsQueue --> nsAuth --> nsState --> nsRun
+    nsRun -->|"application OBO"| nsTool
+    nsTool -->|"verbatim answer or typed options"| nsSave
+    nsSave --> nsRender --> nsDeliver
+    nsDeliver --> nsAnswer
+    nsDeliver -->|"connector response"| nsConfirm
+```
+
+HTTP acceptance is not a user-visible progress message and not a delivery guarantee.
+One has no Channel progress loop, AnswerReady/Delivered ledger or automatic crash replay.
+A restart may lose accepted work; persisted finance memory does not resume it.
+Native OAuth continuation is process-local too. Initial silent SSO remains unresolved;
+interactive sign-in or cached-token reset is not proof of silent SSO.
+See the [One guide](../../../../../src/ZavaFinance.One/README.md) for deployment and acceptance.
+
+## Original Teams and Microsoft 365 Copilot turn
 
 <!-- mermaid-checked: no \n, no em-dash/en-dash, no {} in labels, subgraphs are id["label"], arrows are -->|"label"|, all subgraphs closed by end, ids unique -->
 ```mermaid

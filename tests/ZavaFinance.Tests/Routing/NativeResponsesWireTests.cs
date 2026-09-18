@@ -14,7 +14,20 @@ namespace ZavaFinance.Tests.Routing;
 public sealed class NativeResponsesWireTests
 {
     [Fact]
-    public async Task ResponsesAdapterSendsNativeSchemasAndReplaysOnlyLocalPairedHistory()
+    public void DefaultModelRemainsNonReasoningGpt41Mini()
+    {
+        var options = new FoundryOptions();
+        Assert.Equal("gpt-4.1-mini", options.ModelDeployment);
+        Assert.False(options.ReasoningEnabled);
+    }
+
+    [Theory]
+    [InlineData(false, "gpt-4.1-mini")]
+    [InlineData(true, "gpt-5.4-mini")]
+    [InlineData(true, "custom-routing-deployment")]
+    [InlineData(false, "gpt-5.4-mini")]
+    public async Task ResponsesAdapterSendsNativeSchemasAndReplaysOnlyLocalPairedHistory(
+        bool reasoningEnabled, string modelDeployment)
     {
         using var handler = new ModelHandler();
         using var http = new HttpClient(handler);
@@ -24,9 +37,13 @@ public sealed class NativeResponsesWireTests
             Transport = new HttpClientPipelineTransport(http)
         });
 #pragma warning disable OPENAI001 // Exercises the same preview Responses adapter used by the hosted agent.
-        using IChatClient chat = openAI.GetResponsesClient().AsIChatClient("gpt-4.1-mini");
+        using IChatClient chat = openAI.GetResponsesClient().AsIChatClient(modelDeployment);
 #pragma warning restore OPENAI001
-        AIAgent agent = OrchestratorAgent.CreateRoutingAgent(chat, new FoundryOptions());
+        AIAgent agent = OrchestratorAgent.CreateRoutingAgent(chat, new FoundryOptions
+        {
+            ModelDeployment = modelDeployment,
+            ReasoningEnabled = reasoningEnabled
+        });
         AgentSession session = await agent.CreateSessionAsync();
 
         AgentResponse first = await OrchestratorAgent.SelectToolAsync(
@@ -44,6 +61,17 @@ public sealed class NativeResponsesWireTests
         Assert.Equal(2, handler.Bodies.Count);
         foreach (JsonElement body in handler.Bodies)
         {
+            Assert.Equal(modelDeployment, body.GetProperty("model").GetString());
+            if (reasoningEnabled)
+            {
+                Assert.False(body.TryGetProperty("temperature", out _));
+                Assert.Equal("low", body.GetProperty("reasoning").GetProperty("effort").GetString());
+            }
+            else
+            {
+                Assert.Equal(0, body.GetProperty("temperature").GetDouble());
+                Assert.False(body.TryGetProperty("reasoning", out _));
+            }
             Assert.False(body.GetProperty("store").GetBoolean());
             Assert.False(body.GetProperty("parallel_tool_calls").GetBoolean());
             Assert.Equal("auto", body.GetProperty("tool_choice").GetString());
@@ -85,7 +113,8 @@ public sealed class NativeResponsesWireTests
                 Content = new StringContent($$"""
                     {
                       "id": "resp_{{Bodies.Count}}", "object": "response",
-                      "created_at": 1750000000, "model": "gpt-4.1-mini", "status": "completed",
+                      "created_at": 1750000000, "model": "{{Bodies[^1].GetProperty("model").GetString()}}",
+                      "status": "completed",
                       "output": [{
                         "type": "function_call", "id": "fc_{{Bodies.Count}}",
                         "call_id": "call_{{Bodies.Count}}", "name": "get_statement",

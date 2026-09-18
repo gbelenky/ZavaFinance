@@ -1,0 +1,7 @@
+[tool.pyright]
+include = ["zavafinance", "main.py", "tests"]
+exclude = [".venv"]
+typeCheckingMode = "standard"
+pythonVersion = "3.13"
+venvPath = "."
+venv = ".venv"

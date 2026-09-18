@@ -3,6 +3,12 @@
 A record of how this project got to where it is: what was decided, what was discovered the hard
 way, what is proven, and what is still open. Written from the working session that produced it.
 
+**Availability clarification, 17 September 2026:** this is historical implementation evidence,
+not a current support matrix. Foundry Hosted Agents is GA; the selected hosting libraries remain
+prerelease. Use the [availability and support register](docs/availability-and-support.md) for
+current Fabric feature status, API exceptions and model lifecycle. No runtime or dependency
+upgrade is implied by this documentation review.
+
 ---
 
 ## What it is
@@ -19,6 +25,53 @@ each as the signed-in user:
 Zava is a fictional company. There is no real financial data anywhere in this project.
 
 ## Resolver update - 16 September 2026
+
+> The resolver, delivery and version history below describe the original two-host
+> deployment. The Activity branch status is recorded separately here so its
+> in-memory execution is not confused with the original Channel's durable workflow.
+
+### Activity-protocol reconciliation - 17 September 2026
+
+- `activity-protocol` retains the original deployment and adds **Zava Finance One**:
+  a separate Bot and native Activity host, GPT-5.4-mini with low reasoning, and
+  the same three tools, resolver, OBO and caller-isolation controls. No Python rewrite.
+- One uses the approved, unsigned source-built Activity adapter; its thin .NET host
+  follows the same pattern as the official Python Activity echo sample. The echo
+  sample does not implement human SSO, finance authorization or durable execution.
+- **No One DTS, delivery Blob store, replay coordinator or crash recovery.**
+  Native queues handle slow work in memory. Foundry stores finance conversation
+  state separately; that does not resume work. OAuth continuation is process-local.
+  `reset` clears finance state, not Bot sign-in or the native runtime session.
+- One v1 is deployed and installed in M365 Copilot. Host/readiness and configuration
+  were verified. Interactive sign-in succeeded at `2026-09-17T14:36:46Z`; a fresh
+  conversation later answered `reset` without another prompt. Native logs show a
+  KPIpedia answer and connector HTTP 201, not independently verified answer content.
+- **Initial silent SSO is unresolved:** the user needed credentials or MFA.
+  Cached-token success must not be labelled SSO success. Public SDK review confirms
+  `EnableSso` defaults to true, a token-service 200 may carry a challenge instead
+  of a token, and `OBOConnectionName` is not an initial-SSO switch. Separate Bot and
+  OAuth app IDs are documented as supported in general; the Foundry ServiceIdentity/
+  M365 Copilot flow still needs OAuth-card and token-exchange evidence. No speculative
+  audience, consent, identity or MFA changes were made.
+- Local native tests now total **73** including **24 hosted-adapter cases**.
+  Rebuilt native/shared/original compatibility tests passed **142/142**.
+  VS Code initially ran two stale one-argument theory cases against the current
+  two-argument method; the current source has six two-argument cases and the rebuilt
+  CLI run passed. No source test was removed or relaxed to hide that discovery issue.
+- Local rejected-invoke fixes are newer than deployed v1 and **have not been
+  redeployed**. The dependency lock is portable `net10.0`; the prior documented
+  RID-specific locked restore failed `NU1004`. Portable framework-dependent
+  publishing, with no apphost, succeeded and contains no Functions/Durable runtime
+  dependencies or original Agent bootstrap files. The build guide now matches it.
+- Install [the branded finance ZIP](appPackage/one/build/zavafinance-one.zip), not
+  the generic `appPackage.zip` generated beside One.Host. The
+  [One guide](src/ZavaFinance.One/README.md) is the current build/configuration and
+  acceptance reference; the architecture and swimlane include the separate native path.
+- Initial SSO, live card continuation, Fabric statements/exploration and two-user
+  isolation remain acceptance gates. Fabric is still paused; evaluations are deferred.
+  No cloud changes, commit, push or merge were performed by this reconciliation.
+
+### Original resolver implementation
 
 The approved update adds Fabric-owned terminology, Azure AI Search retrieval and a local
 resolver inside the hosted agent, plus adaptive KPI/organization clarification in the channel.
@@ -255,12 +308,15 @@ and switches later progress nudges to ordinary messages once a discarded frame i
 avoid: "does the stream have an id" looks like the right check and is not, because the id comes from
 the first frame, which Copilot does create.
 
-**A causal-question failure was a runtime problem, not a data problem.** Multi-step questions
+**A causal-question failure was a runtime problem, not a data problem.** In the recorded test, multi-step questions
 returned first "no rows" and then a confidently wrong answer. Tables had recently been added to the
 data agent and looked like the cause; they were nearly reverted. They were not the cause — the
 generally available runtime could not plan a multi-step query over them. Switching the data agent to
 its preview runtime produced a correct decomposition while single-fact checks stayed exact. That
-setting is not exposed on the REST surface, only in the portal.
+setting was changed in the portal, not through the REST surface. These are the runtime labels
+observed during that test, not a current GA/Preview classification of Fabric Data Agent or its
+MCP connector. The current feature-specific review is in the
+[support register](docs/availability-and-support.md#fabric-feature-boundaries).
 
 **A duplicate-turn defect was hiding in plain sight.** A single Teams message was arriving as two
 separate posts about eleven seconds apart, and each started its own turn — so every question ran
@@ -289,15 +345,18 @@ surface explicitly resolved it. Related: Copilot caches its agent list separatel
 the two can disagree for minutes to hours after an update, and a rename is the worst case because
 the old entry disappears before the new one appears.
 
-**On preview dependencies.** There is exactly one, and the instinct was to hand-roll around it. That
-instinct was wrong on inspection: every breaking change in its history is confined to features this
-design does not use — resilient background execution, steerable conversations, stream providers —
-because answers are returned whole and conversation state is owned here. The surface actually
-consumed has been stable since the first beta. It is pinned deliberately. Do not adopt the
-resilience or steering APIs without re-reading that changelog first.
+**On prerelease dependencies.** The decision was to retain the Responses hosting adapter rather
+than hand-roll the server. The earlier phrase "exactly one" counted direct references only:
+the reviewed graph contains `Azure.AI.AgentServer.Responses` `1.0.0-beta.8` and its transitive
+`Azure.AI.AgentServer.Core` `1.0.0-beta.28`. The application also consumes Core's platform
+state-store integration. Earlier testing of the handler surface justified that release's choice,
+not a guarantee that future packages or platform changes are compatible. Review both packages
+and the consumed APIs before changing versions or adopting resilience/steering features.
 
-**On package versions.** The project was briefly on a beta line unnecessarily. The generally
-available line is the lower version number; the higher one is beta. This is easy to get backwards.
+**On package versions.** The project was briefly on a beta line unnecessarily. In that particular
+comparison, the stable release had a lower version number than the newer beta. This is not a
+general version-ordering rule: check the exact package's release metadata and its integration
+requirements rather than choosing solely by the largest number.
 
 ---
 

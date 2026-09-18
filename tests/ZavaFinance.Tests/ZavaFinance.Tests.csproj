@@ -13,6 +13,7 @@
     
     <ProjectReference Include="..\..\src\ZavaFinance.Agent\ZavaFinance.Agent.csproj" />
     <ProjectReference Include="..\..\src\ZavaFinance.Channel\ZavaFinance.Channel.csproj" />
+    <ProjectReference Include="..\..\src\ZavaFinance.One\ZavaFinance.One.csproj" />
   </ItemGroup>
 
   <ItemGroup>

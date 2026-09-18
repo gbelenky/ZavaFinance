@@ -1,8 +1,100 @@
 # ZavaFinance
 
-A finance agent for **Microsoft Teams and Microsoft 365 Copilot**, split across two hosts: a
+A finance agent for **Microsoft Teams and Microsoft 365 Copilot**. The original deployment is split across two hosts: a
 Foundry **hosted agent** that owns routing and tools, and a thin **channel** that owns identity,
 acknowledgement, and delivery.
+
+**For finance/controller project owners:**
+- [Architecture, financial controls and code ownership](docs/finance-controller-architecture.md)
+- [Every Azure and Microsoft service explained: purpose, data, ownership and failure impact](docs/azure-services-for-controllers.md)
+- [Current GA, Preview, prerelease and model-lifecycle status](docs/availability-and-support.md)
+
+The [standalone Python Activity sibling](src/ZavaFinance.One.Python/README.md) has its own
+setup and deployment guide. These controller guides explain shared ownership responsibilities.
+
+## Zava Finance One: experimental Activity variant
+
+The **`activity-protocol` branch only** also contains **Zava Finance One**: a separate
+Foundry-hosted application with native Microsoft 365 Activity handling, a separate Azure Bot,
+new icons, and **GPT-5.4-mini (GA)**. It reuses the same three finance tools, orchestration,
+delegated authorization and clickable clarification cards. This is not a Python rewrite.
+
+One does **not** use the original Channel Function App, its App Service plan, delivery
+Storage or Durable Task Scheduler. Accepted work runs in the native SDK's in-memory queue:
+**a process restart can lose an in-flight turn; the user must retry**. No crash recovery is enabled.
+Its Activity host SDK is an explicitly approved, source-pinned **unofficial/unreleased build**,
+not an additional GA Microsoft package.
+
+- [Build, deploy, configure and test One](src/ZavaFinance.One/README.md)
+- Installable package: [Zava Finance One ZIP](appPackage/one/build/zavafinance-one.zip)
+  (generated and Git-ignored; rebuild with the configuration script).
+- Original Azure deployment and original app package remain separate and unchanged.
+- Live startup, native background services and `/readiness` HTTP 200 have been verified.
+  One is installed in M365 Copilot; interactive sign-in and a cached-token `reset` work.
+  **Initial silent SSO is unresolved.** Cards, Fabric finance and two-user acceptance remain open.
+- Local native/shared/original regressions: **142 passed**, including **73 native cases**.
+  Local rejected-invoke fixes are newer than deployed One v1; no redeployment is implied.
+
+**Scope below:** unless explicitly labelled One, hosting, delivery, Responses-header and
+historical acceptance sections describe the **original two-host app**. Use the
+[One guide](src/ZavaFinance.One/README.md) for its current contract and commands.
+
+## Services at a glance
+
+The branch also includes [Zava Finance One Python](src/ZavaFinance.One.Python/README.md):
+a full Python port with a separate `zavafinance-one-python` service, Bot, state store
+and app package. It does not replace either .NET deployment. Like .NET One, it has
+no durable in-flight recovery; its published Python Activity adapter is **beta**.
+Python version **4** is deployed and cloud startup was verified; **203 tests passed
+before deployment**. Package **1.0.1** is installed. **Initial silent SSO was verified** at
+21:17 UTC on 17 September: no cached token, successful token exchange, then a visible KPIpedia
+answer without clicking Sign In. External Edge's Azure profile also received a
+KPIpedia answer using the cached delegated token. Version 3 fixes the follow-up
+HTTP 400 by JSON-encoding replayed function-call arguments; two live model turns
+passed. Separate Fabric analysis requests reached MCP but timed out. On 18 September,
+**v4 deployed the read-timeout correction** and returned readiness HTTP 200:
+Fabric reads now use the existing 300-second overall analysis budget instead of
+stopping at 60 seconds. A synthetic 65-second delayed HTTP response passed locally;
+the user confirmed the updated agent was working on 18 September. Detailed Fabric
+timings and answer accuracy have not been independently verified. This does not add durable execution. Full
+finance/card/two-user acceptance remains open; see the
+[Python verification record](src/ZavaFinance.One.Python/README.md#acceptance-and-operational-limits)
+for the install package and exact validation boundaries.
+
+This table describes the **original two-host deployment**; the One differences are above.
+
+| Service or platform | Why it is in ZavaFinance |
+|---|---|
+| Azure Bot Service | Connects Teams/Microsoft 365 messages and replies to the Channel |
+| Azure Functions | Runs Channel code: sign-in, acknowledgements, Agent calls and clickable cards |
+| App Service plan | Supplies the dedicated compute on which the Channel Function App runs |
+| Durable Task Scheduler | Coordinates slow background requests, saved workflow progress and retries |
+| Azure Storage | Persists Channel delivery state, cached answers/cards and Functions host state |
+| Microsoft Foundry account/project | Organizes the finance Agent, model access and AI application configuration |
+| Foundry hosted Agent runtime/state | Runs finance application code and preserves caller-isolated conversation state |
+| Azure OpenAI model deployments | Route questions/rerank candidates and produce terminology embeddings; do not calculate statement figures |
+| Azure AI Search | Finds candidate KPI/organization terms from a published metadata copy, not financial facts |
+| Microsoft Entra ID | Authenticates users/apps and supports delegated finance access |
+| Managed identities and RBAC | Let services access only their required Azure dependencies without service passwords for supported connections |
+| Virtual Network, private endpoints and Private DNS | Provide the Channel's private storage path and resolve service names to private addresses |
+| Azure Monitor / Application Insights | Shows request performance, exceptions and service-call failures |
+| Log Analytics workspace | Retains the detailed diagnostic logs for authorized investigation |
+| Fabric capacity, workspace, lakehouse and SQL endpoint | Host authoritative finance data/metadata and execute the fixed statement queries |
+| Fabric Data Agent / MCP | Supplies open-ended finance exploration |
+| Copilot Studio / KPIpedia | Supplies sourced KPI definitions and explanations |
+| Teams / Microsoft 365 Copilot | Provide the employee-facing chat and card experience |
+| Azure Container Registry, conditional | Stores deployment images when used by the selected Foundry build/deployment path |
+| Azure Key Vault, optional | Can manage secrets/certificates when policy requires it; not provisioned by the baseline |
+
+**Microsoft Foundry Hosted Agents is GA.** The application still selects prerelease hosting
+libraries and some preview APIs; service GA does not make those selections GA.
+The routing model `gpt-4.1-mini` is now **Legacy**, not Preview; Microsoft's published retirement
+date for version `2025-04-14` is **14 April 2027**. See the dated
+[availability and support register](docs/availability-and-support.md) for feature-specific
+Fabric status, package/API exceptions and official sources. The
+[controller service guide](docs/azure-services-for-controllers.md) explains the distinctions,
+including which services are Azure resources versus connected Microsoft platforms or optional
+additions. The [IT-admin catalogue](docs/it-admin-catalogue.md) contains configuration and RBAC detail.
 
 ## Native function calling, verbatim answers
 
@@ -88,7 +180,7 @@ Signed-in resolver acceptance is recorded separately in the
 [current handover](HANDOVER.md#resolver-update---16-september-2026). Historical version-11
 results below remain evidence for that earlier release, not a replacement for resolver tests.
 
-## Why it is split
+## Why the original deployment is split
 
 The same finance agent is reachable two ways:
 
@@ -109,7 +201,7 @@ this solution owns the OBO lifecycle rather than delegating refresh to the SDK; 
 removed operationally — the bot app, OAuth connection, Function App, Durable Task and blob storage
 all remain, plus a container, a registry and an agent deployment.
 
-## The header that makes it work
+## The original Responses header contract
 
 Foundry forwards only headers prefixed **`x-client-`** to a hosted-agent container, and
 deliberately does **not** forward `Authorization`. The adapter documents this on the property
@@ -152,6 +244,9 @@ src/ZavaFinance.Agent/     Foundry hosted agent:
                              Contracts/      dependency-free reply and clarification protocol
                              Abstractions/   IDownstreamTokenProvider
 src/ZavaFinance.Channel/   Function App: Teams + M365 Copilot, ack, proactive delivery
+src/ZavaFinance.Activity/  Shared channel identity checks and clickable clarification cards
+src/ZavaFinance.One/       Native Activity application reusing the finance engine
+src/ZavaFinance.One.Host/  Thin Foundry Activity entrypoint; experimental SDK and locked publish
 tests/ZavaFinance.Tests/   isolation, finance maths, tool failures, routing golden set
 appPackage/                Teams + Microsoft 365 Copilot manifest and icons
 scripts/                   Fabric metadata and Search publication/verification
@@ -164,6 +259,11 @@ executable. They contain caller/session identity and the typed reply protocol. T
 nested under the agent's upload directory: code deploy uploads one project directory, so an
 external sibling dependency would be absent from the remote build. Agent and channel both
 reference the same identity assembly; routing, tools, and finance dependencies stay agent-only.
+The shared Activity library carries the existing channel presentation and payload checks
+without introducing Functions or Durable Task into the experimental native host.
+It retains the `ZavaFinance.Channel` namespace for compatibility; that namespace
+does not mean One references the Functions executable. One's bundled publish
+includes sibling libraries; the original Agent's remote-source build is separate.
 
 The hosted agent binds tools to one caller through:
 
@@ -184,6 +284,8 @@ same routing definition.
 |---|---|---|
 | Channel | Platform conversation ID; pending, answer-ready, and delivered turn records including cached typed replies | Private Blob Storage |
 | Agent | Bounded routing history, latest KPI, KPIpedia conversation ID and caller-bound pending clarification | Foundry State Store |
+| One | Same finance state, with a separate salt and store name; no persisted delivery record | Foundry State Store |
+| One native OAuth/queue | Sign-in continuation and accepted work, process-local only | M365 MemoryStorage and in-memory queue |
 
 `FoundrySessionStore` reads and writes one known session type without runtime CLR type loading.
 It preserves existing encoded keys and reads the old type/value envelope, ignoring obsolete
@@ -194,7 +296,9 @@ Completed finance answers are cached before channel delivery. Retries reuse that
 than repeat the finance call. A delivered record suppresses later redelivery; a process failure
 between the external send and recording delivery can still duplicate a message. This is not an
 exactly-once transport guarantee. Questions, answers, and user tokens do not enter Durable Task
-inputs or outputs.
+inputs or outputs. This delivery-cache/retry contract belongs to the **original Channel**.
+One has neither that delivery store nor a scheduler: persisted conversation state does
+not make interrupted work recoverable.
 
 The MCP client uses the official `ModelContextProtocol.Core` transport for initialization,
 JSON-RPC and HTTP/SSE. Only Fabric-specific tool selection, delegated authentication, result
@@ -205,38 +309,46 @@ configuration-section name for compatibility with existing deployment settings.
 
 ## Package status
 
-Everything is GA except one package, and it is confined to one project:
+Package release status is separate from service and API availability. The current project
+references and cached restored graphs were reviewed on **17 September 2026**:
 
 | Package | Status | Where |
 |---|---|---|
-| `Microsoft.Agents.AI` 1.21.0 | GA | Agent |
-| `Microsoft.Agents.CopilotStudio.Client` 1.8.77 | GA | Agent |
-| `Microsoft.Agents.Storage.Blobs` 1.8.77 | GA | Channel |
+| `Microsoft.Agents.AI` 1.21.0 | Stable | Agent |
+| `Microsoft.Agents.AI.Foundry` 1.5.0 | Stable | Agent |
+| `Azure.AI.Projects` 2.0.1 | Stable package; verify its selected API separately | Agent |
+| `Microsoft.Agents.CopilotStudio.Client` 1.8.77 | Stable | Agent |
+| `Microsoft.Agents.Storage.Blobs` 1.8.77 | Stable | Channel |
 | `ModelContextProtocol.Core` 2.2.0 | Stable | Agent MCP transport |
-| `Microsoft.Data.SqlClient` 6.1.4 | GA | Agent |
-| `Microsoft.Agents.Hosting.AspNetCore` 1.8.77 | GA | Channel |
-| `Microsoft.Azure.Functions.Worker.Extensions.DurableTask` 1.16.4 | GA | Channel |
-| `Microsoft.Identity.Client` 4.89.0 | GA | Agent |
-| **`Azure.AI.AgentServer.Responses` 1.0.0-beta.8** | **preview** | Agent only |
+| `Microsoft.Data.SqlClient` 6.1.4 | Stable | Agent |
+| `Microsoft.Agents.Hosting.AspNetCore` 1.8.77 | Stable | Channel |
+| `Microsoft.Azure.Functions.Worker.Extensions.DurableTask` 1.16.4 | Stable | Channel |
+| `Microsoft.Identity.Client` 4.89.0 | Stable | Agent |
+| **`Azure.AI.AgentServer.Responses` 1.0.0-beta.8** | **Prerelease, direct reference** | Agent |
+| **`Azure.AI.AgentServer.Core` 1.0.0-beta.28** | **Prerelease, transitive dependency** | Agent |
+| **`Azure.AI.AgentServer.Activity` 1.0.0-beta.1.source.dc9cca2d1f1c.core28.m3651877** | **Unofficial, unsigned source build of unreleased adapter** | One.Host only |
 
-Exactly one preview package, confined to one project. The routing conversation is serialized into
-this solution's own store rather than a durable entity, which is what keeps
-`Microsoft.Agents.AI.DurableTask` and `Microsoft.Agents.AI.Hosting.AzureFunctions` — neither of
-which has a GA release — out of the dependency set entirely.
+There is **one direct prerelease reference and two resolved prerelease packages** in the original Agent;
+the cached Channel graph contains none. This is local dependency evidence, not a fresh deployed
+SBOM. Project references alone do not enumerate transitive packages.
+One additionally selects the source-built Activity adapter and inherits the original
+Responses dependency through its finance library without exposing a Responses endpoint.
 
-### On the one preview package
+Routing state is serialized by application code into the Foundry platform state store rather
+than a durable agent entity. Therefore `Microsoft.Agents.AI.DurableTask` and
+`Microsoft.Agents.AI.Hosting.AzureFunctions` are not used. Their current NuGet listings are
+prerelease `1.16.0-preview.260730.1`; that does not make ordinary Durable Functions or Durable
+Task Scheduler Preview. See [sources and support boundaries](docs/availability-and-support.md).
 
-`Azure.AI.AgentServer.Responses` had breaking changes in beta.2, beta.6 and beta.8, and beta.8
-removed public types outright. All of that churn is in **resilient background execution, steerable
-conversations and stream providers** — none of which this solution uses, because responses are
-returned whole and conversation state is owned here. The surface actually consumed
-(`ResponseHandler.CreateAsync`, `ResponseContext.ClientHeaders`, `GetInputTextAsync`) has been
-stable since beta.1.
+### Why the hosting adapter still needs review
 
-Pinned deliberately. Do not adopt the resilience or steering APIs without re-reading that
-changelog.
+The Responses adapter provides hosting and forwarded caller headers; transitive Core provides
+the platform state-store integration. Keeping the same package versions helps reproduce the
+application build but does not freeze Microsoft's hosted backend or guarantee compatibility.
+Review both packages, identity/header forwarding, state access and protocol behavior before an
+upgrade. Earlier successful beta-to-beta testing is not a GA support guarantee.
 
-## Known limitation: progress cannot name the tool
+## Original Channel limitation: progress cannot name the tool
 
 Routing happens inside the hosted agent, so the channel learns which tool ran only when the answer
 is already back. The acknowledgement is therefore tool-neutral — the user sees *"Working on that…"*
@@ -374,6 +486,16 @@ One package covers both surfaces. This is a **custom engine agent**.
 ./scripts/build-app-package.ps1 -BotId <botAppId> -AppHostName <app>.azurewebsites.net
 ```
 
+For the separate **Zava Finance One** package, use `-Variant One` and its **new bot's**
+application/client ID. This selects the new teal/navy icons and name, retains the existing
+commands, and writes `appPackage\one\build\zavafinance-one.zip`; the original package is not
+overwritten. Package generation does not provision the bot, configure delegated sign-in or
+prove Activity endpoint compatibility. Use the verified new endpoint's DNS host name.
+If the new bot uses a different identity from the existing delegated-finance application,
+also supply `-UserAuthAppId` and `-UserAuthResource` from its `mcs` OAuth connection.
+The builder then uses the **new bot ID** for routing and the **existing OAuth app ID/URI**
+for sign-in; these identities must not be conflated.
+
 Then **Apps → Manage your apps → Upload an app**.
 
 Three rules, each learned the hard way:
@@ -411,7 +533,7 @@ federated credential is unavailable.
 
 ## Operational notes
 
-### A deployed agent does not reach existing conversations
+### Original Responses deployment and existing conversations
 
 Hosted-agent containers are **warm per session**, and a session is bound to its conversation. A
 conversation that keeps being used keeps its container — and therefore keeps running the build
@@ -434,7 +556,7 @@ Stack-trace line numbers are the other tell, and they are more reliable than the
 frame reports the real await site, so a line that no longer matches the source means the running
 assembly is older than the source — not that the fix was wrong.
 
-### One ordinary-message delivery path
+### Original Channel ordinary-message delivery path
 
 The channel sends an immediate ordinary acknowledgement, occasional ordinary progress messages,
 and one ordinary final answer. It no longer starts a stream, intercepts stream frames, or falls
@@ -464,7 +586,7 @@ Policy forces `publicNetworkAccess: Disabled` on storage accounts, and setting i
 the VNet, the private endpoints and the private DNS zones from the agent tier entirely. The
 channel still needs all of them, because Durable Functions does.
 
-### One bot app id, one Azure Bot Service
+### A distinct messaging identity for each Azure Bot
 
 `Failed to store new bot. MsaAppId is already in use` is the error when two Bot Services share an
 app registration. The app can be reused for OBO, but not for a second bot.

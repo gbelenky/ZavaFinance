@@ -6,7 +6,7 @@ using Azure.Core;
 using Azure.Identity;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
-using OpenAI.Responses;
+using ZavaFinance.Core.Agent;
 using ZavaFinance.Core.Configuration;
 
 namespace ZavaFinance.Core.Finance;
@@ -14,7 +14,8 @@ namespace ZavaFinance.Core.Finance;
 /// <summary>Read-only hybrid retrieval. Search document text never crosses into a reply.</summary>
 public sealed class AzureResolverSearch(
     HttpClient http, TokenCredential credential, ResolverOptions options,
-    IChatClient reranker, string modelDeployment, ILogger<AzureResolverSearch> logger) : IResolverSearch
+    IChatClient reranker, string modelDeployment, ILogger<AzureResolverSearch> logger,
+    bool reasoningEnabled = false) : IResolverSearch
 {
     public async Task<IReadOnlyList<ResolverCandidateId>> SearchAsync(
         string rawTerm, string field, ResolverRelease release, CancellationToken cancellationToken)
@@ -100,6 +101,8 @@ public sealed class AzureResolverSearch(
                 },
                 required = new[] { "ids" }, additionalProperties = false
             });
+            ChatOptions chatOptions = ModelRequestOptions.Create(modelDeployment, reasoningEnabled);
+            chatOptions.ResponseFormat = ChatResponseFormat.ForJsonSchema(schema, "resolver_choices");
             ChatResponse response = await reranker.GetResponseAsync(
                 [
                     new ChatMessage(ChatRole.System,
@@ -119,12 +122,7 @@ public sealed class AzureResolverSearch(
                         })
                     }))
                 ],
-                new ChatOptions
-                {
-                    ModelId = modelDeployment, Temperature = 0,
-                    ResponseFormat = ChatResponseFormat.ForJsonSchema(schema, "resolver_choices"),
-                    RawRepresentationFactory = _ => new CreateResponseOptions { StoredOutputEnabled = false }
-                }, timeout.Token);
+                chatOptions, timeout.Token);
             using JsonDocument document = JsonDocument.Parse(response.Text);
             return ReadArray(document.RootElement, "ids").EnumerateArray()
                 .Select(ReadString).ToArray();
