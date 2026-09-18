@@ -60,7 +60,7 @@ param partitionCount int = 1
 @discriminator('mode')
 type networkConfiguration = {
   mode: 'Private'
-  @description('Existing private endpoint subnet; separate from the delegated hosted-agent and Function App subnets.')
+  @description('Existing private endpoint subnet; separate from the delegated hosted-agent subnet.')
   @minLength(1)
   privateEndpointSubnetId: string
   @description('Existing privatelink.search.windows.net zone, linked/forwarded to both runtime and publisher networks.')

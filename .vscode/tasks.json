@@ -2,15 +2,33 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Zava Finance One Python: tests",
+            "label": "Zava Finance Python: tests",
             "type": "process",
-            "command": "${workspaceFolder}\\src\\ZavaFinance.One.Python\\.venv\\Scripts\\python.exe",
+            "command": "${workspaceFolder}\\src\\python\\.venv\\Scripts\\python.exe",
             "args": ["-m", "unittest", "discover", "-s", "tests", "-v"],
             "options": {
-                "cwd": "${workspaceFolder}\\src\\ZavaFinance.One.Python"
+                "cwd": "${workspaceFolder}\\src\\python"
             },
             "group": "test",
             "problemMatcher": []
+        },
+        {
+            "label": "Zava Finance .NET: tests",
+            "type": "process",
+            "command": "dotnet",
+            "args": ["test", "${workspaceFolder}\\src\\dotnet\\tests\\ZavaFinance.Tests\\ZavaFinance.Tests.csproj", "--configuration", "Release", "--filter", "FullyQualifiedName!~RoutingEvalTests"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": "test",
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "Zava Finance .NET: publish",
+            "type": "process",
+            "command": "pwsh",
+            "args": ["-NoProfile", "-File", "${workspaceFolder}\\scripts\\deploy-dotnet.ps1", "-PublishOnly"],
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": "build",
+            "problemMatcher": "$msCompile"
         }
     ]
 }

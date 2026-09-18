@@ -25,8 +25,19 @@ appsettings.Local.json
 
 ## App package build artifacts
 appPackage/build/
-appPackage/one/build/
-appPackage/python/build/
+appPackage/**/build/
+
+## Python environments and local state
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+.env
+.env.*
+!.env.example
+.foundry/
 
 ## IDE
 .vs/

@@ -3,7 +3,7 @@
 .SYNOPSIS
     Builds an isolated, unofficial Activity SDK package from pinned public MIT sources.
 .DESCRIPTION
-    Run only on activity-protocol. Requires an installed .NET 10 SDK and Git.
+    Requires an installed .NET 10 SDK and Git.
     WorkDirectory must be outside the application repository. No application project,
     user NuGet configuration, or existing global package cache is modified.
     OutputDirectory optionally places the feed subdirectory and distribution ZIP in
@@ -47,10 +47,6 @@ $coreVersion = '1.0.0-beta.28'
 $version = "1.0.0-beta.1.source.dc9cca2d1f1c.core28.m365$($M365Version.Replace('.', ''))"
 $packageId = 'Azure.AI.AgentServer.Activity'
 $repoRoot = Split-Path $PSScriptRoot -Parent
-$branch = & git -C $repoRoot branch --show-current
-if ($LASTEXITCODE -ne 0 -or $branch -ne 'activity-protocol') {
-    throw 'Build this experimental SDK only from the activity-protocol branch.'
-}
 if ($SdkVersion -notmatch '^10\.0\.\d+$') {
     throw 'SdkVersion must identify an installed stable .NET 10 SDK (for example 10.0.303).'
 }

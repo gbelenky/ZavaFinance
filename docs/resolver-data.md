@@ -2,19 +2,19 @@
 
 Fabric owns the terminology. Azure AI Search is a rebuildable retrieval projection, not the
 authority for organization membership, KPI execution or user access. The resolver runs inside
-the existing hosted agent; there is no separate resolver Function.
+the native Activity-hosted finance application in both .NET and Python.
 
 ## Reporting model
 
-The additive organization tree is **Company > Region > Department group > Department**.
+The organization tree is **Company > Region > Department group > Department**.
 Global group and department nodes provide cross-region scopes. These are reporting views of
 the existing fact keys, not invented legal ownership. Their scopes overlap deliberately.
 Each query uses `EXISTS` against distinct `(region_code, department_code)` pairs; it must not join
 overlapping nodes into facts and multiply financial amounts.
 
 For the current demo, the export contains 90 organization nodes, 18 executable KPIs and six
-non-executable KPI families: 114 entities and 336 node-to-fact-key mappings. The original nine
-Delta tables, 18 KPI codes, financial formulas and facts are unchanged.
+non-executable KPI families: 114 entities and 336 node-to-fact-key mappings. Source dimensions,
+fact keys and reviewed formulas define what these catalogue entries can execute.
 
 Aliases and explanatory definitions in [the publisher](../scripts/fabric/resolver_catalog.py)
 are independently curated Zava metadata. Names, existing codes, groups, units, aggregation
@@ -26,7 +26,7 @@ calculator and business definitions before publishing a new measure.
 paths and their global scope. Ambiguous aliases are retained rather than assigned to the first
 match. Region-qualified names and codes are additional aliases.
 
-## Additive Delta tables
+## Resolver Delta tables
 
 | Table | Key / contents |
 |---|---|
@@ -45,7 +45,7 @@ matches. Older versions remain available for audit; they must not silently execu
 
 - PowerShell 7 and Azure CLI signed into the intended tenant and subscription.
 - Existing project dependencies built in `Release`:
-  `dotnet build .\tests\ZavaFinance.Tests\ZavaFinance.Tests.csproj -c Release`.
+  `dotnet build .\src\dotnet\tests\ZavaFinance.Tests\ZavaFinance.Tests.csproj -c Release`.
   The publication scripts reuse its existing SQL client; no separate SQL module is installed.
 - Fabric contributor rights to create/run the version-specific publication notebook, active
   capacity, and permission to read/write the lakehouse. SQL SELECT permissions alone do not
@@ -88,7 +88,7 @@ For example, version `2026-09-16-v1` uses `zava-resolver-2026-09-16-v1`.
 
 1. The stage notebook reads source Delta snapshots, validates parent links, cycles, aliases,
    measure mappings and scope coverage, then appends only the four resolver tables.
-2. Original source Delta versions are checked again before publication completes. A concurrent
+2. Source Delta versions are checked again before publication completes. A concurrent
    source change is an explicit failure, not a successful partial release.
 3. Wait for the Fabric SQL endpoint to synchronize the new tables. A completed Spark job is
    not proof that SQL is ready. The SQL test checks exact counts, scope integrity and optional

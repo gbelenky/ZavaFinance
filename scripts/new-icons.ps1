@@ -1,154 +1,148 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Generates the Teams / Microsoft 365 Copilot app icons.
+    Generates shared Zava Finance native Activity icons for Teams and Microsoft 365.
 
 .DESCRIPTION
-    Writes appPackage/color.png (192x192) and appPackage/outline.png (32x32).
+    Writes only appPackage\icons\color.png (192x192) and outline.png (32x32)
+    by default. Requires Windows and System.Drawing; no external assets or fonts.
 
-    The design is an ascending three-bar chart with a trend arrow. Bars were chosen
-    over a lettermark because the outline icon is rendered at 32 pixels and
-    monochrome, where two or three glyphs of text are illegible.
+    The custom numeral has a rising shoulder and an ascending diagonal facet:
+    one connected financial story.
+    The color icon uses a full-bleed teal (#087F8C) background, a white numeral,
+    and a navy (#102A43) lower facet. Use #087F8C as the app accent color.
+    The outline retains the complete numeral as flat white on transparency.
 
-    Teams renders outline.png as a silhouette and applies its own tint, so that file
-    must be a single flat colour on transparency with no interior detail.
+.EXAMPLE
+    .\scripts\new-icons.ps1
 #>
 [CmdletBinding()]
 param(
-    [string] $OutputDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'appPackage')
+    [string] $OutputDirectory = (Join-Path (Split-Path $PSScriptRoot -Parent) 'appPackage\icons')
 )
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 
-# Matches "accentColor" in appPackage/manifest.json. Teams draws the colour icon on
-# that accent behind transparent pixels, so keeping them equal avoids a visible seam.
-$brandBlue = [System.Drawing.Color]::FromArgb(255, 15, 108, 189)
+$accentTeal = [System.Drawing.Color]::FromArgb(255, 8, 127, 140)
+$navy = [System.Drawing.Color]::FromArgb(255, 16, 42, 67)
 
-function New-RoundedRectPath {
-    param([float] $X, [float] $Y, [float] $W, [float] $H, [float] $Radius)
-
-    $d = $Radius * 2
-    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
-    $path.AddArc($X, $Y, $d, $d, 180, 90)
-    $path.AddArc($X + $W - $d, $Y, $d, $d, 270, 90)
-    $path.AddArc($X + $W - $d, $Y + $H - $d, $d, $d, 0, 90)
-    $path.AddArc($X, $Y + $H - $d, $d, $d, 90, 90)
-    $path.CloseFigure()
-    return $path
-}
-
-function New-Canvas {
-    param([int] $Size)
-
-    $bitmap = New-Object System.Drawing.Bitmap($Size, $Size)
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $graphics.Clear([System.Drawing.Color]::Transparent)
-    return @{ Bitmap = $bitmap; Graphics = $graphics }
-}
-
-# Bar geometry as fractions of the canvas, so both sizes stay visually identical.
-$bars = @(
-    @{ X = 0.180; Y = 0.560; W = 0.150; H = 0.260 },
-    @{ X = 0.385; Y = 0.430; W = 0.150; H = 0.390 },
-    @{ X = 0.590; Y = 0.270; W = 0.150; H = 0.550 }
+# Original vector geometry on a 32-unit grid, shared by both icon sizes.
+$onePoints = [System.Drawing.PointF[]]@(
+    [System.Drawing.PointF]::new(8, 12)
+    [System.Drawing.PointF]::new(15, 6)
+    [System.Drawing.PointF]::new(20, 6)
+    [System.Drawing.PointF]::new(20, 23)
+    [System.Drawing.PointF]::new(25, 23)
+    [System.Drawing.PointF]::new(25, 27)
+    [System.Drawing.PointF]::new(9, 27)
+    [System.Drawing.PointF]::new(9, 23)
+    [System.Drawing.PointF]::new(15, 23)
+    [System.Drawing.PointF]::new(15, 12)
+    [System.Drawing.PointF]::new(10.5, 16)
 )
 
-function Add-Bars {
+$facetPoints = [System.Drawing.PointF[]]@(
+    [System.Drawing.PointF]::new(15, 20)
+    [System.Drawing.PointF]::new(20, 15)
+    [System.Drawing.PointF]::new(20, 23)
+    [System.Drawing.PointF]::new(25, 23)
+    [System.Drawing.PointF]::new(25, 27)
+    [System.Drawing.PointF]::new(9, 27)
+    [System.Drawing.PointF]::new(9, 23)
+    [System.Drawing.PointF]::new(15, 23)
+)
+
+function New-OneIcon {
     param(
-        $Graphics,
+        [string] $Path,
         [int] $Size,
-        [System.Drawing.Brush] $Brush,
-        [float] $CornerFraction,
-        [float] $OffsetX = 0.0,
-        [float] $OffsetY = 0.0
+        [switch] $Outline
     )
 
-    foreach ($b in $bars) {
-        $x = [float](($b.X + $OffsetX) * $Size)
-        $y = [float](($b.Y + $OffsetY) * $Size)
-        $w = [float]($b.W * $Size)
-        $h = [float]($b.H * $Size)
-        $r = [Math]::Min([float]($CornerFraction * $Size), $w / 2)
+    $supersampling = 4
+    $renderSize = $Size * $supersampling
+    $format = [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
+    $large = [System.Drawing.Bitmap]::new($renderSize, $renderSize, $format)
+    $result = [System.Drawing.Bitmap]::new($Size, $Size, $format)
+    $graphics = $null
+    $outputGraphics = $null
+    $facetBrush = $null
 
-        if ($r -lt 1) {
-            $Graphics.FillRectangle($Brush, $x, $y, $w, $h)
+    try {
+        $graphics = [System.Drawing.Graphics]::FromImage($large)
+        $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+        $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $background = if ($Outline) { [System.Drawing.Color]::Transparent } else { $accentTeal }
+        $graphics.Clear($background)
+        $scale = [float]($renderSize / 32.0)
+        $graphics.ScaleTransform($scale, $scale)
+        $graphics.FillPolygon([System.Drawing.Brushes]::White, $onePoints)
+
+        if (-not $Outline) {
+            # Clip the facet to the numeral so its shared edges remain a clean silhouette.
+            $clipPath = [System.Drawing.Drawing2D.GraphicsPath]::new()
+            try {
+                $clipPath.AddPolygon($onePoints)
+                $graphics.SetClip($clipPath)
+                $facetBrush = [System.Drawing.SolidBrush]::new($navy)
+                $graphics.FillPolygon($facetBrush, $facetPoints)
+            }
+            finally {
+                $clipPath.Dispose()
+            }
+        }
+
+        $graphics.Dispose()
+        $graphics = $null
+        $outputGraphics = [System.Drawing.Graphics]::FromImage($result)
+        $outputGraphics.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+        $outputGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $outputGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $destination = [System.Drawing.Rectangle]::new(0, 0, $Size, $Size)
+        $outputGraphics.DrawImage(
+            $large, $destination, 0, 0, $renderSize, $renderSize,
+            [System.Drawing.GraphicsUnit]::Pixel
+        )
+        $outputGraphics.Dispose()
+        $outputGraphics = $null
+
+        if ($Outline) {
+            # Preserve antialiasing in alpha only; Teams must receive pure white RGB.
+            for ($y = 0; $y -lt $Size; $y++) {
+                for ($x = 0; $x -lt $Size; $x++) {
+                    $alpha = $result.GetPixel($x, $y).A
+                    $result.SetPixel($x, $y, [System.Drawing.Color]::FromArgb($alpha, 255, 255, 255))
+                }
+            }
         }
         else {
-            $path = New-RoundedRectPath -X $x -Y $y -W $w -H $h -Radius $r
-            $Graphics.FillPath($Brush, $path)
-            $path.Dispose()
+            # Bicubic sampling at the canvas edge can introduce partial alpha.
+            for ($y = 0; $y -lt $Size; $y++) {
+                for ($x = 0; $x -lt $Size; $x++) {
+                    $pixel = $result.GetPixel($x, $y)
+                    $result.SetPixel($x, $y, [System.Drawing.Color]::FromArgb(255, $pixel.R, $pixel.G, $pixel.B))
+                }
+            }
         }
+
+        $result.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
     }
-}
-
-function New-ColorIcon {
-    param([string] $Path, [int] $Size = 192)
-
-    $c = New-Canvas -Size $Size
-    $g = $c.Graphics
-
-    $bg = New-Object System.Drawing.SolidBrush($brandBlue)
-    $bgPath = New-RoundedRectPath -X 0 -Y 0 -W $Size -H $Size -Radius ([float]($Size * 0.22))
-    $g.FillPath($bg, $bgPath)
-    $bgPath.Dispose()
-    $bg.Dispose()
-
-    $white = [System.Drawing.Brushes]::White
-    Add-Bars -Graphics $g -Size $Size -Brush $white -CornerFraction 0.022
-
-    # Trend arrow: the agent's job is explaining what moved, so the mark shows movement.
-    $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::White, [float]($Size * 0.045))
-    $pen.StartCap = [System.Drawing.Drawing2D.LineCap]::Round
-    $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-    $pen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-
-    $p1 = New-Object System.Drawing.PointF([float]($Size * 0.225), [float]($Size * 0.400))
-    $p2 = New-Object System.Drawing.PointF([float]($Size * 0.430), [float]($Size * 0.285))
-    $p3 = New-Object System.Drawing.PointF([float]($Size * 0.665), [float]($Size * 0.150))
-    $g.DrawLines($pen, [System.Drawing.PointF[]]@($p1, $p2, $p3))
-
-    # Arrowhead as two strokes rather than a filled polygon; it stays crisp when scaled.
-    $h1 = New-Object System.Drawing.PointF([float]($Size * 0.530), [float]($Size * 0.150))
-    $h2 = New-Object System.Drawing.PointF([float]($Size * 0.665), [float]($Size * 0.285))
-    $g.DrawLine($pen, $p3, $h1)
-    $g.DrawLine($pen, $p3, $h2)
-    $pen.Dispose()
-
-    $g.Dispose()
-    $c.Bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
-    $c.Bitmap.Dispose()
-}
-
-function New-OutlineIcon {
-    param([string] $Path, [int] $Size = 32)
-
-    $c = New-Canvas -Size $Size
-    $g = $c.Graphics
-
-    # Flat white on transparency. Teams recolours the silhouette, so anything other
-    # than one solid colour is discarded or renders as noise.
-    #
-    # The bars are recentred here because the colour icon reserves its upper third for
-    # the trend arrow, which the outline drops. Reusing that layout unchanged would
-    # leave the silhouette visibly low and left in its 32-pixel box.
-    $white = [System.Drawing.Brushes]::White
-    Add-Bars -Graphics $g -Size $Size -Brush $white -CornerFraction 0.0 `
-        -OffsetX 0.040 -OffsetY -0.045
-
-    $g.Dispose()
-    $c.Bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
-    $c.Bitmap.Dispose()
+    finally {
+        if ($null -ne $graphics) { $graphics.Dispose() }
+        if ($null -ne $outputGraphics) { $outputGraphics.Dispose() }
+        if ($null -ne $facetBrush) { $facetBrush.Dispose() }
+        $large.Dispose()
+        $result.Dispose()
+    }
 }
 
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $colorPath = Join-Path $OutputDirectory 'color.png'
 $outlinePath = Join-Path $OutputDirectory 'outline.png'
 
-New-ColorIcon -Path $colorPath
-New-OutlineIcon -Path $outlinePath
+New-OneIcon -Path $colorPath -Size 192
+New-OneIcon -Path $outlinePath -Size 32 -Outline
 
-Write-Host "Wrote $colorPath (192x192)"
-Write-Host "Wrote $outlinePath (32x32)"
+Write-Host "Wrote $colorPath (192x192; teal #087F8C, navy #102A43)"
+Write-Host "Wrote $outlinePath (32x32; flat white on transparency)"

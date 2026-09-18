@@ -6,78 +6,10 @@ requiredVersions:
 
 name: zavafinance
 services:
-  zavafinance:
-    host: azure.ai.agent
-    # Code deploy uploads this directory. Shared identity and contracts are nested inside it,
-    # so the source package contains every project needed by the remote build.
-    project: src/ZavaFinance.Agent
-    language: csharp
-    codeConfiguration:
-      runtime: dotnet_10
-      entryPoint: ZavaFinance.Agent.dll
-    kind: hosted
-    name: zavafinance
-    displayName: Zava Finance
-    description: >-
-      Explains KPIs, builds statements from the finance lakehouse, and analyses open-ended
-      questions about what moved the numbers. Every answer is produced with the signed-in
-      user's own permissions.
-    protocols:
-      - protocol: responses
-        version: 2.0.0
-    environmentVariables:
-      # FOUNDRY_PROJECT_ENDPOINT is injected by the platform and must not be declared here:
-      # the whole FOUNDRY_* and AGENT_* namespace is reserved, and declaring one is rejected
-      # at deploy time. The model deployment therefore travels under a neutral name.
-      - name: ModelDeployment
-        value: ${AZURE_AI_MODEL_DEPLOYMENT_NAME}
-
-      # The isolation boundary's secret. Regenerating it changes every derived session key
-      # and orphans every existing conversation.
-      - name: Orchestrator__SessionKeySalt
-        value: ${ORCHESTRATOR_SESSION_KEY_SALT}
-      - name: Orchestrator__LogSubagentText
-        value: 'false'
-
-      # On-Behalf-Of. The audience is what the forwarded assertion must be issued for.
-      - name: Obo__ClientId
-        value: ${OBO_CLIENT_ID}
-      - name: Obo__TenantId
-        value: ${OBO_TENANT_ID}
-      - name: Obo__Audience
-        value: ${OBO_AUDIENCE}
-      - name: Obo__ClientSecret
-        value: ${OBO_CLIENT_SECRET}
-      - name: Obo__UserTokenHeader
-        value: x-client-user-token
-
-      - name: CopilotStudioAgent__EnvironmentId
-        value: ${COPILOT_STUDIO_ENVIRONMENT_ID}
-      - name: CopilotStudioAgent__SchemaName
-        value: ${COPILOT_STUDIO_SCHEMA_NAME}
-
-      - name: Fabric__SqlEndpoint
-        value: ${FABRIC_SQL_ENDPOINT}
-      - name: Fabric__Database
-        value: ${FABRIC_DATABASE}
-      - name: Fabric__WorkspaceId
-        value: ${FABRIC_WORKSPACE_ID}
-      - name: Fabric__DataAgentId
-        value: ${FABRIC_DATA_AGENT_ID}
-
-      - name: Resolver__SearchEndpoint
-        value: ${RESOLVER_SEARCH_ENDPOINT}
-      - name: Resolver__SemanticConfigurationName
-        value: resolver-semantic
-      - name: Resolver__EmbeddingEndpoint
-        value: ${RESOLVER_EMBEDDING_ENDPOINT}
-    container:
-      resources:
-        cpu: '1'
-        memory: 2Gi
   zavafinance-one:
     host: azure.ai.agent
-    project: src/ZavaFinance.One.Host
+    # AZD requires the real project; bundled packaging publishes it for linux-x64.
+    project: src/dotnet/ZavaFinance.One.Host
     language: csharp
     codeConfiguration:
       runtime: dotnet_10
@@ -85,10 +17,10 @@ services:
       dependencyResolution: bundled
     kind: hosted
     name: zavafinance-one
-    displayName: Zava Finance One
+    displayName: Zava Finance .NET
     description: >-
-      Experimental native Activity finance agent. Uses the same delegated finance tools
-      and orchestration as Zava Finance. In-flight requests are not recovered after a restart.
+      Native Activity .NET finance agent with delegated finance tools and caller-isolated
+      state. Preview transport; in-flight requests are not recovered after a restart.
     protocols:
       - protocol: activity
         version: 2.0.0
@@ -138,7 +70,7 @@ services:
         memory: 2Gi
   zavafinance-one-python:
     host: azure.ai.agent
-    project: src/ZavaFinance.One.Python
+    project: src/python
     language: python
     codeConfiguration:
       runtime: python_3_13
@@ -146,10 +78,10 @@ services:
       dependencyResolution: remote_build
     kind: hosted
     name: zavafinance-one-python
-    displayName: Zava Finance One Python
+    displayName: Zava Finance Python
     description: >-
       Standalone Python native Activity finance agent with delegated finance tools,
-      deterministic statements and caller-isolated state. Experimental: no in-flight recovery.
+      deterministic statements and caller-isolated state. Preview transport; no in-flight recovery.
     protocols:
       - protocol: activity
         version: 2.0.0

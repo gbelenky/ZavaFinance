@@ -1,0 +1,8 @@
+{
+    "dotnet.defaultSolution": "ZavaFinance.slnx",
+    "python.defaultInterpreterPath": "${workspaceFolder}\\src\\python\\.venv\\Scripts\\python.exe",
+    "python.testing.cwd": "${workspaceFolder}\\src\\python",
+    "python.testing.unittestEnabled": true,
+    "python.testing.pytestEnabled": false,
+    "python.testing.unittestArgs": ["-v", "-s", "tests", "-p", "test_*.py"]
+}

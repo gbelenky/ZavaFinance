@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);OPENAI001</NoWarn>
+    <RootNamespace>ZavaFinance.Agent</RootNamespace>
+    <AssemblyName>ZavaFinance.Agent</AssemblyName>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Identity\bin\**;Identity\obj\**;Contracts\bin\**;Contracts\obj\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Compile Remove="Identity\**\*.cs" />
+    <ProjectReference Include="Identity\ZavaFinance.Identity.csproj" />
+    <Compile Remove="Contracts\**\*.cs" />
+    <ProjectReference Include="Contracts\ZavaFinance.Contracts.csproj" />
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>ZavaFinance.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.21.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.5.1" />
+    <PackageReference Include="ModelContextProtocol.Core" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Agents.CopilotStudio.Client" Version="1.8.77" />
+    <PackageReference Include="Azure.AI.Projects" Version="2.0.1" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.4" />
+    <PackageReference Include="Azure.AI.AgentServer.Core" Version="1.0.0-beta.28" />
+    <PackageReference Include="Azure.AI.Extensions.OpenAI" Version="2.0.0" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.89.0" />
+    <PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.22.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
+    <PackageReference Include="Microsoft.OpenTelemetry" Version="1.0.7" />
+  </ItemGroup>
+
+</Project>

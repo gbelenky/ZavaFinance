@@ -68,8 +68,8 @@
     ]
   },
   "webApplicationInfo": {
-    "id": "${{BOT_ID}}",
-    "resource": "api://botid-${{BOT_ID}}"
+    "id": "${{USER_AUTH_APP_ID}}",
+    "resource": "${{USER_AUTH_RESOURCE}}"
   },
   "permissions": [
     "identity",
