@@ -4,6 +4,20 @@ Fabric owns the terminology. Azure AI Search is a rebuildable retrieval projecti
 authority for organization membership, KPI execution or user access. The resolver runs inside
 the native Activity-hosted finance application in both .NET and Python.
 
+The [customer installation guide](customer-it-installation-guide.md#6-configure-fabric-and-install-the-data-catalogue)
+includes the base-table contract, publisher permissions and step-by-step installation.
+The [seeding script pack](zavafinance-fabric-seeding.zip) distributes these existing
+publication scripts with a SHA-256 manifest; it is not the original finance dataset or a
+standalone application release.
+
+**Base-data prerequisite:** all nine original Delta tables must already exist:
+`dim_region`, `dim_department`, `dim_kpi`, `dim_date`, `dim_account`,
+`fact_finance_monthly`, `fact_kpi_monthly`, `fact_headcount_monthly` and
+`fact_gl_transaction`. The publisher expects `Tables/<table_name>` paths directly under
+the lakehouse, not a different schema-qualified folder layout. It preserves the originals
+and generates resolver metadata only. Obtain the approved base dataset and full schemas
+from the finance data-release owner before running it against a new lakehouse.
+
 ## Reporting model
 
 The organization tree is **Company > Region > Department group > Department**.
@@ -43,10 +57,15 @@ matches. Older versions remain available for audit; they must not silently execu
 
 ## Prerequisites
 
-- PowerShell 7 and Azure CLI signed into the intended tenant and subscription.
+- PowerShell 7.6 / .NET 10 for this release's Windows SQL-client dependency layout, and
+  Azure CLI signed into the intended tenant and subscription.
 - Existing project dependencies built in `Release`:
   `dotnet build .\src\dotnet\tests\ZavaFinance.Tests\ZavaFinance.Tests.csproj -c Release`.
   The publication scripts reuse its existing SQL client; no separate SQL module is installed.
+  When using the extracted seeding pack instead of the full source tree, pass
+  `-SqlClientDirectory` with that approved build output (or an equivalent approved
+  dependency folder) to `Test-ResolverData.ps1` and `Publish-ResolverSearch.ps1`.
+  This dependency is also required when publishing data for the Python agent.
 - Fabric contributor rights to create/run the version-specific publication notebook, active
   capacity, and permission to read/write the lakehouse. SQL SELECT permissions alone do not
   authorize Spark/OneLake exports.
@@ -87,12 +106,16 @@ The Search index name must end with the lower-case version, with dots replaced b
 For example, version `2026-09-16-v1` uses `zava-resolver-2026-09-16-v1`.
 
 1. The stage notebook reads source Delta snapshots, validates parent links, cycles, aliases,
-   measure mappings and scope coverage, then appends only the four resolver tables.
+   measure mappings and scope coverage, then stages catalogue, scope and calendar rows.
+   It creates an empty release table only when one does not yet exist; an existing active
+   release is unchanged.
 2. Source Delta versions are checked again before publication completes. A concurrent
    source change is an explicit failure, not a successful partial release.
 3. Wait for the Fabric SQL endpoint to synchronize the new tables. A completed Spark job is
    not proof that SQL is ready. The SQL test checks exact counts, scope integrity and optional
-   existing Zava November 2025 reference figures. Its expected counts describe this demo;
+   existing Zava November 2025 reference figures (only for the unchanged synthetic baseline).
+   The reference headcount assertion reads KPI-013; independently reconcile the runtime's
+   `fact_headcount_monthly` values as well. Its expected counts describe this demo;
    update the assertions deliberately when changing the reporting model.
 4. The Search publisher creates a version-specific index, generates vectors using Entra auth,
    checks every document upload result and exact IDs/count/version, and probes actual keyword
@@ -100,7 +123,9 @@ For example, version `2026-09-16-v1` uses `zava-resolver-2026-09-16-v1`.
    among the top three candidates; rank one is not treated as proof of identity. Every fuzzy
    suggestion still requires confirmation in the resolver. Failed publication leaves the old
    release active.
-5. Only after verification, activate the singleton release row atomically in Delta. Keep the
+5. Only after verification, activate the singleton release row atomically in Delta.
+   `-ActivateRelease` does not rerun Search validation: the operator must enforce the gates.
+   Wait for SQL synchronization and read back the exact singleton tuple. Keep the
    prior index and catalogue until no old requests require them. There is no automatic
    cleanup/delete operation in these scripts.
 

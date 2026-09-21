@@ -4,13 +4,15 @@ Review date: **18 September 2026**. Service availability, feature/API status,
 software package status and executed acceptance are separate questions.
 This register describes the selected architecture, not a support guarantee.
 
+Activity API and customer-networking clarification: **21 September 2026**.
+
 ## Service and feature register
 
 | Component | Status | Application implication |
 | --- | --- | --- |
 | Microsoft Foundry Hosted Agents | **GA service** | Hosts both native Activity implementations |
 | Microsoft Agent Framework core | **GA framework** | Actual dependency pins and integrations still require their own review |
-| Foundry Activity publishing endpoint | **Preview API** (`2025-05-15-preview`) | Needs explicit approval for the selected production use |
+| Foundry Activity messaging endpoint | **Preview-versioned API** (`2025-05-15-preview`) | Needs explicit approval; the separate Microsoft 365 publish operation uses `v1`, which does not make this Activity route GA |
 | Foundry-managed durable state | **Public Preview; no SLA** | Development finance memory inside the existing project |
 | Cosmos DB for NoSQL | **GA service** | Planned independently for staging and production; version-aware adapter not implemented |
 | Azure Bot Service, Entra ID, Azure AI Search, Azure Monitor, Key Vault and networking services | **GA services** | Validate the selected API versions, features, regions and network configurations separately |
@@ -22,6 +24,15 @@ This register describes the selected architecture, not a support guarantee.
 Changing state storage to Cosmos does not make the Activity API GA, change SDK
 support, or add durable task execution. Persistent conversation memory cannot
 resume a process-owned tool invocation or OAuth continuation.
+
+For customer deployment, also resolve the
+[networking and public Activity-route gates](it-admin-catalogue.md#foundry-private-networking-and-the-microsoft-365-public-route).
+The current publishing design can expose only the Activity route publicly while
+other Foundry routes remain private. General hosted-agent network documentation
+does not certify this repository's exact native Activity/direct-code/private-egress/
+managed-state combination; validate that combination before deployment sign-off.
+The reviewed Fabric MCP documentation likewise does not establish a separate MCP
+GA declaration merely because the Data Agent service is GA.
 
 ### Implementation package boundaries
 
@@ -84,6 +95,8 @@ local tests and cloud deployment are different acceptance boundaries.
 
 - [Agent Framework Foundry hosting](https://learn.microsoft.com/agent-framework/hosting/foundry-hosted-agent)
 - [Hosted-agent runtime contract](https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agent-contract)
+- [Hosted Agents GA migration statement](https://learn.microsoft.com/azure/foundry/agents/how-to/migrate-hosted-agent-preview)
+- [Direct source-code hosting](https://learn.microsoft.com/azure/foundry/agents/how-to/deploy-hosted-agent-code)
 - [Publish to Teams and Microsoft 365](https://learn.microsoft.com/azure/foundry/agents/how-to/publish-copilot-virtual-network)
 - [Durable state store and preview limits](https://learn.microsoft.com/azure/foundry/agents/concepts/agent-state-store)
 - [Cosmos DB for NoSQL overview](https://learn.microsoft.com/azure/cosmos-db/nosql/overview)

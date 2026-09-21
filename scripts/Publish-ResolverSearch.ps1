@@ -9,7 +9,7 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^https://[a-z0-9-]+\.(openai\.azure\.com|cognitiveservices\.azure\.com)/?$')][string]$EmbeddingEndpoint,
     [string]$EmbeddingDeployment = 'text-embedding-3-large',
     [ValidateRange(1,3072)][int]$EmbeddingDimensions = 1536,
-    [string]$SqlClientDirectory = (Join-Path $PSScriptRoot '..\tests\ZavaFinance.Tests\bin\Release\net10.0')
+    [string]$SqlClientDirectory = (Join-Path $PSScriptRoot '..\src\dotnet\tests\ZavaFinance.Tests\bin\Release\net10.0')
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest

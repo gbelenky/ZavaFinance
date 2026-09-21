@@ -5,6 +5,13 @@ approve infrastructure changes or claim staging/production deployment.
 Read [administration requirements](it-admin-catalogue.md) and
 [support boundaries](availability-and-support.md) first.
 
+**New customer environment:** complete the
+[customer onboarding and local-development runbook](development.md) first.
+These commands assume an approved, configured customer azd environment and existing
+dependencies. A new environment name alone does not remove repository demonstration
+defaults, create a finance database, publish KPIpedia or obtain Entra consent.
+There is no assertion here that the customer's greenfield deployment has been tested.
+
 ## Deployment units
 
 | Implementation | Source | Service | Code packaging | Teams app package |
@@ -38,27 +45,36 @@ catalogue publication are separately administered.
 
 ## Build and deploy one implementation
 
-Run from the repository root. `$searchResourceId` must contain the approved ARM ID,
-not a Search URL:
+Run from the repository root. `$environmentName` must be the approved **customer**
+azd environment, not the demonstration environment. `$searchResourceId` must contain
+the approved ARM ID, not a Search URL. Supply non-secret values from the customer
+handover record:
 
 ```powershell
+$environmentName = Read-Host 'Approved customer azd environment name'
+$searchResourceId = Read-Host 'Approved customer Search ARM resource ID'
+
 # .NET: test and stage a local validation bundle; no Azure state is accessed.
 .\scripts\deploy-dotnet.ps1 -PublishOnly
 
 # Deploy .NET, including tests, publish, Bot configuration and package generation.
 .\scripts\deploy-dotnet.ps1 `
-    -EnvironmentName zavafinance `
+    -EnvironmentName $environmentName `
     -SearchResourceId $searchResourceId
 
 # Or deploy Python, including dependency/test checks and Bot configuration.
 .\scripts\deploy-python.ps1 `
-    -EnvironmentName zavafinance `
+    -EnvironmentName $environmentName `
     -SearchResourceId $searchResourceId
 ```
 
 Run only the chosen deployment command. The wrappers call explicit azd services;
 do not use an unscoped deployment to update one implementation. Keep the source
 unchanged between successful tests and code packaging.
+
+The examples above assume the named OAuth connection already exists. For a first
+deployment, use the [explicit channel-input examples](development.md#first-deployment-and-real-channel-testing),
+including the approved `-UserAuthResource` and `-DelegatedScopes` values.
 
 Code deployment does not provision the planned staging/production Cosmos, telemetry,
 Key Vault or network resources. Those require an independently approved design and
@@ -83,7 +99,7 @@ root. Keep packaging work inside the repository in this PowerShell process:
 New-Item -ItemType Directory -Force `
     -Path .\.artifacts\azd-package-work, .\.artifacts\azd-packages | Out-Null
 $env:TEMP = $env:TMP = (Resolve-Path .\.artifacts\azd-package-work).Path
-azd package zavafinance-one --environment zavafinance --no-prompt `
+azd package zavafinance-one --environment $environmentName --no-prompt `
     --output-path .artifacts\azd-packages\zavafinance-one.zip
 ```
 
@@ -97,6 +113,24 @@ These are two different ZIPs with different consumers:
 Do not upload the hosted-code ZIP to Teams. Packaging alone does not deploy the
 agent, configure OAuth or install the Teams app.
 
+### Code-only redeployment
+
+After initial onboarding, if identities, OAuth, app manifest and resource configuration
+are unchanged, test the chosen variant locally and perform a **targeted** code deployment:
+
+```powershell
+# Choose one, not both.
+azd deploy zavafinance-one --environment $environmentName --no-prompt
+# azd deploy zavafinance-one-python --environment $environmentName --no-prompt
+```
+
+This is narrower than the full wrapper: it does not run the repository's channel
+reconciliation or branded-package generation. It still performs the Foundry extension's
+packaging/deployment work and is a cloud write, not a dry run. Keep the validated source
+unchanged, read back the new agent version, and test a fresh conversation. Do not
+reprovision shared resources because a generic `azd show` display disagrees with
+agent-specific deployment readback.
+
 ## Reconcile Bot configuration
 
 After a successful targeted deployment, the wrappers run
@@ -105,7 +139,7 @@ After a successful targeted deployment, the wrappers run
 ```powershell
 .\scripts\configure-channel.ps1 `
     -Variant DotNet `
-    -EnvironmentName zavafinance `
+    -EnvironmentName $environmentName `
     -SearchResourceId $searchResourceId
 ```
 
@@ -129,6 +163,13 @@ Use `-Variant Python` for Python. The script:
 - Adds only missing scoped runtime Search/model grants, applies demo tags and
   builds the selected branded package.
 
+Configuration validation does not certify fresh silent SSO. For a new customer
+installation, the documented standard pattern uses the finance SSO registration's
+Application ID URI for the token-exchange resource and `webApplicationInfo.resource`.
+Any differing per-Bot resource contract needs real-channel identity validation.
+Follow the [standalone identity procedure](customer-it-installation-guide.md#8-microsoft-entra-app-registration-and-consent)
+rather than copying demonstration identifiers.
+
 `ONE_APP_PACKAGE_VERSION` / `PYTHON_APP_PACKAGE_VERSION` select intentional package
 updates. Bot/custom-engine IDs route to the implementation; `webApplicationInfo`
 identifies the authorized finance OAuth application and the selected connection's
@@ -137,6 +178,10 @@ token-exchange resource. The verified development mappings are in
 
 Do not write tokens or secrets into command output, package manifests or tracked files.
 Use only the selected Bot; configuration is not authority to repoint another service.
+For a **missing** `mcs` connection, first-time setup consumes the approved finance
+application credential to configure OAuth. That requires an approved identity
+administrator/change window; runtime managed-identity federation does not make this separate Bot credential step
+secretless. Review the script with that owner before running it in a customer tenant.
 
 ### Rebuild an app package without deployment
 

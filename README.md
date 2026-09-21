@@ -32,7 +32,9 @@ Choose an explicit service when deploying.
 - [Activity, authentication and tool execution flows](docs/swimlane-diagram.md)
 - [Finance ownership and financial controls](docs/finance-controller-architecture.md)
 - [Services explained for controllers](docs/azure-services-for-controllers.md)
-- [IT administration, identity and environment requirements](docs/it-admin-catalogue.md)
+- [Customer IT readiness and installation guide (PDF, draft)](docs/customer-it-installation-guide.pdf) - outstanding delivery dependencies and closure owners, beginner installation map, settings/RBAC, Entra/Bot setup, data seeding and environment architecture; [editable source](docs/customer-it-installation-guide.md). For IT readiness review, not deployment sign-off until the delivery gaps and clean-workstation acceptance are closed. Resource/channel setup is portal-first; data seeding uses the reviewed [script pack](docs/zavafinance-fabric-seeding.zip).
+- [Customer IT catalogue: services, ownership, identity and network policies](docs/it-admin-catalogue.md)
+- [Customer onboarding and local development](docs/development.md)
 - [Deployment runbook](docs/deployment.md)
 - [Resolver catalogue publication](docs/resolver-data.md)
 - [Availability and support boundaries](docs/availability-and-support.md)

@@ -9,6 +9,7 @@ artifacts/
 ## Deployment artifacts
 deploy.zip
 *.zip
+!/docs/zavafinance-fabric-seeding.zip
 *.azd-generated
 
 ## Secrets - never commit

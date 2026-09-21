@@ -6,12 +6,12 @@ function Invoke-ResolverSql {
         [Parameter(Mandatory)][string]$Database,
         [Parameter(Mandatory)][string]$Query,
         [hashtable]$Parameters = @{},
-        [string]$SqlClientDirectory = (Join-Path $PSScriptRoot '..\tests\ZavaFinance.Tests\bin\Release\net10.0')
+        [string]$SqlClientDirectory = (Join-Path $PSScriptRoot '..\src\dotnet\tests\ZavaFinance.Tests\bin\Release\net10.0')
     )
     $ErrorActionPreference = 'Stop'
     $assembly = Join-Path $SqlClientDirectory 'runtimes\win\lib\net9.0\Microsoft.Data.SqlClient.dll'
     if (!(Test-Path -LiteralPath $assembly)) {
-        throw "Build tests\ZavaFinance.Tests in Release first, or supply SqlClientDirectory containing its dependencies."
+        throw "Build src\dotnet\tests\ZavaFinance.Tests in Release first, or supply SqlClientDirectory containing its dependencies."
     }
     [AppContext]::SetSwitch('Switch.Microsoft.Data.SqlClient.UseManagedNetworkingOnWindows', $true)
     foreach ($name in @('Microsoft.Extensions.Logging.Abstractions.dll', 'Microsoft.Data.SqlClient.Extensions.Abstractions.dll',

@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory)][string]$SqlDatabase,
     [Parameter(Mandatory)][string]$CatalogVersion,
     [switch]$VerifyDemoReferenceValues,
-    [string]$SqlClientDirectory = (Join-Path $PSScriptRoot '..\tests\ZavaFinance.Tests\bin\Release\net10.0')
+    [string]$SqlClientDirectory = (Join-Path $PSScriptRoot '..\src\dotnet\tests\ZavaFinance.Tests\bin\Release\net10.0')
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Resolver-Sql.ps1')
