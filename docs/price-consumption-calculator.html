@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ZavaFinance budget calculator for finance controllers, with a detailed IT view. Editable assumptions, not an Azure quotation.">
+  <title>ZavaFinance | Price &amp; consumption planner</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("scoutTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font: 15px/1.5 "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif; }
+    main { max-width: 1360px; padding: 36px 28px 64px; margin: auto; }
+    h1 { font-size: clamp(28px, 4vw, 44px); line-height: 1.15; letter-spacing: -.03em; margin: 12px 0; }
+    h2 { font-size: 22px; margin: 0 0 8px; }
+    h3 { margin: 0 0 12px; font-size: 16px; }
+    p { margin: 8px 0 16px; }
+    a { color: var(--cp-link); }
+    .eyebrow { color: var(--cp-accent); font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .muted, small { color: var(--cp-text-muted); }
+    .topline, .toolbar, .section-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+    .toolbar { justify-content: flex-start; gap: 8px; }
+    button, .file-button, select, input { font: inherit; border: 1px solid var(--cp-border-strong); border-radius: .625rem; color: var(--cp-text); background: var(--cp-surface); padding: 9px 12px; }
+    button, .file-button { cursor: pointer; font-weight: 600; }
+    button:hover, .file-button:hover { border-color: var(--cp-accent); }
+    button.primary, button[aria-pressed="true"] { background: var(--cp-accent); color: var(--cp-accent-fg); border-color: var(--cp-accent); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    :focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 3px; }
+    input[aria-invalid="true"] { border: 2px solid var(--cp-danger); }
+    input[type="number"], select { width: 100%; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: .625rem; font-size: 12px; background: var(--cp-surface-soft); border: 1px solid var(--cp-border); }
+    .notice { border-left: 4px solid var(--cp-warning); background: var(--cp-surface); border-radius: .625rem; padding: 16px 20px; margin: 24px 0; }
+    .error { border-color: var(--cp-danger); }
+    .error strong { color: var(--cp-danger); }
+    .card { min-width: 0; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px; padding: 24px; }
+    .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 24px 0; }
+    .metric { font-size: clamp(24px, 3vw, 34px); font-weight: 700; letter-spacing: -.03em; margin: 8px 0; }
+    .metric-label { font-size: 13px; color: var(--cp-text-muted); }
+    .accent { color: var(--cp-accent); }
+    .two-col { display: grid; grid-template-columns: 1.25fr 1fr; gap: 20px; margin: 20px 0; }
+    .section { margin-top: 28px; }
+    .section-head { margin-bottom: 16px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 12px; border-bottom: 1px solid var(--cp-border); vertical-align: top; }
+    th { color: var(--cp-text-muted); font-size: 12px; font-weight: 600; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    tfoot { font-weight: 700; }
+    caption { text-align: left; font-weight: 600; margin-bottom: 8px; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 24px 0 16px; }
+    .fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+    .scope-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 16px 0 24px; }
+    .scope-cards .card { padding: 16px; }
+    .scope-cards button { width: 100%; text-align: left; margin-bottom: 12px; }
+    .scope-cards label { display: flex; align-items: center; gap: 8px; }
+    .scope-cards input { width: 20px; height: 20px; accent-color: var(--cp-accent); }
+    .scope-cards small { display: block; margin-bottom: 12px; }
+    .business-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .budget-explainer { border-left: 4px solid var(--cp-accent); padding-left: 16px; }
+    body[data-view="controller"] .it-only, body[data-view="it"] .controller-only { display: none !important; }
+    .field label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+    .field small { display: block; margin-top: 6px; font-size: 12px; }
+    details { margin-top: 16px; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px; }
+    summary { padding: 20px 24px; font-size: 17px; font-weight: 600; cursor: pointer; }
+    details > .detail-body { padding: 0 24px 24px; }
+    .bar-row { display: grid; grid-template-columns: 138px 1fr 90px; gap: 12px; align-items: center; margin: 14px 0; font-size: 13px; }
+    .bar-track { height: 12px; background: var(--cp-surface-soft); border-radius: .625rem; overflow: hidden; }
+    .bar { height: 100%; background: var(--cp-accent); border-radius: .625rem; }
+    .formula { font: 12px/1.6 Consolas, "Courier New", Courier, monospace; background: var(--cp-surface-soft); padding: 12px; border-radius: .625rem; }
+    .rate-input { min-width: 100px; max-width: 130px; }
+    .rate-note { min-width: 230px; max-width: 430px; font-size: 12px; }
+    .rate-name { min-width: 190px; }
+    #status { min-height: 24px; color: var(--cp-text-muted); margin-top: 8px; font-size: 13px; }
+    #errors ul, #warnings ul { padding-left: 20px; margin-bottom: 0; }
+    .hidden, [hidden] { display: none !important; }
+    footer { margin-top: 32px; border-top: 1px solid var(--cp-border); padding-top: 20px; color: var(--cp-text-muted); font-size: 12px; }
+    @media (max-width: 900px) { .cards { grid-template-columns: repeat(2, 1fr); } .two-col { grid-template-columns: 1fr; } .fields { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px) { main { padding: 24px 16px; } .fields, .cards, .scope-cards { grid-template-columns: 1fr; } .card { padding: 18px; } .bar-row { grid-template-columns: 108px 1fr 80px; gap: 8px; } }
+    @media print {
+      body { background: var(--cp-surface); font-size: 10pt; }
+      main { padding: 0; max-width: none; }
+      .toolbar, #theme, #status, #reset, .no-print { display: none; }
+      .cards { grid-template-columns: repeat(2, 1fr); }
+      .two-col, .fields { display: block; }
+      .field { display: inline-block; vertical-align: top; width: 31%; padding: 8px; }
+      .business-fields .field { width: 48%; }
+      .scope-cards { display: none; }
+      details > .detail-body { display: block !important; }
+      .table-wrap { overflow: visible; }
+      .card, details { margin-bottom: 12px; }
+      tr, .field, .metric { break-inside: avoid; }
+      h2, summary { break-after: avoid; }
+      th, td { padding: 6px; }
+      a { overflow-wrap: anywhere; }
+    }
+  </style>
+</head>
+<body data-view="controller">
+<main>
+  <header>
+    <div class="topline">
+      <span class="eyebrow">ZavaFinance / budget planning</span>
+      <div><span class="badge">Offline &middot; no sign-in</span> <button id="theme" type="button" aria-label="Toggle light or dark theme">Light / dark</button></div>
+    </div>
+    <h1>Price &amp; consumption planner</h1>
+    <p class="controller-only muted">Estimate what to budget for your finance assistant. Start with your team and how often they will use it &mdash; no IT knowledge needed.</p>
+    <p class="it-only muted">Understand the platform baseline, then see what changes as your finance team uses the solution.</p>
+    <div class="tabs no-print" role="group" aria-label="Calculator view">
+      <button id="controller-view" type="button" data-view="controller" aria-pressed="true">Controller view</button>
+      <button id="it-view" type="button" data-view="it" aria-pressed="false">Detailed IT view</button>
+    </div>
+    <div class="toolbar">
+      <button class="primary" id="export" type="button">Export assumptions</button>
+      <button id="import" type="button">Import assumptions</button>
+      <input id="import-file" type="file" accept=".json,application/json" hidden aria-label="Import scenario JSON">
+      <button id="csv" type="button">Download budget CSV</button>
+      <button id="print" type="button">Print / save PDF</button>
+      <button id="reset" type="button">Reset all assumptions</button>
+    </div>
+    <div id="status" role="status" aria-live="polite"></div>
+  </header>
+  <noscript><div class="notice error">Enable JavaScript to use this calculator. No results are available without it.</div></noscript>
+  <div class="notice">
+    <strong>Planning estimate, not a quote or observed spend.</strong> USD list-rate snapshot: <strong>29 September 2026</strong>.
+    <span class="it-only">Azure baseline: <strong>Sweden Central</strong>; model pricing geography is separately identified below.
+    <strong>The entire Staging/Production component catalogue, tiers and sizing are assumptions.</strong>
+    Development follows the repository architecture, but its workload and sizing are also estimates, not a live inventory.</span>
+    <span class="controller-only">The services, service levels and sizes for testing and daily use are assumptions, not an approved IT design. The build-and-try budget is also an estimate.</span>
+    Review the allowances and exclusions before approving your budget. <strong>Copilot Studio / KPIpedia pricing is excluded.</strong>
+    <p><strong>Actual prices may vary depending on your Microsoft agreement</strong><span class="controller-only">. Confirm contracted prices with your purchasing team before approval.</span><span class="it-only"> (for example, Enterprise Agreement,
+      Microsoft Customer Agreement or CSP), negotiated pricing, applicable benefits, commitments, billing currency and taxes.
+      These public USD rates are indicative, not your contracted prices. Confirm your applicable price list with Microsoft
+      or your licensing partner before budget approval. Enter contracted unit rates <em>or</em> the applicable discount;
+      do not apply the same discount twice.</span></p>
+  </div>
+  <div id="errors" class="notice error" role="alert" hidden></div>
+  <section class="controller-only section" aria-labelledby="controller-input-title">
+    <span class="eyebrow">01 / your team</span><h2 id="controller-input-title">Choose what to budget for</h2>
+    <p>These are separate areas of the solution, not alternative price plans. Tick the areas you need; use a button to edit that area's team. Switching areas does not change what is included.</p>
+    <div id="controller-scope" class="scope-cards"></div>
+    <article class="card">
+      <h3 id="controller-team-title"></h3>
+      <div id="controller-fields" class="fields business-fields"></div>
+      <p id="controller-volume" class="budget-explainer"></p>
+      <details><summary>Safety buffer &amp; busier months</summary><div id="controller-budget-fields" class="detail-body fields business-fields"></div></details>
+    </article>
+  </section>
+  <section id="controller-results" class="controller-only section" aria-labelledby="controller-results-title">
+    <span class="eyebrow">02 / your budget</span><h2 id="controller-results-title">What should we budget?</h2>
+    <p id="controller-budget-scope"></p>
+    <div class="cards">
+      <article class="card"><div class="metric-label">Total monthly estimate</div><div class="metric accent" id="controller-monthly">--</div><small>All ticked areas, before the safety buffer</small></article>
+      <article class="card"><div class="metric-label">Annual budget with safety buffer</div><div class="metric" id="controller-annual">--</div><small id="controller-buffer-note"></small></article>
+      <article class="card"><div class="metric-label" id="controller-per-person-label">Monthly cost per person</div><div class="metric" id="controller-per-person">--</div><small>Selected area only. Average shared cost, not a per-person licence fee.</small></article>
+      <article class="card"><div class="metric-label" id="controller-questions-label">Questions per month</div><div class="metric" id="controller-questions">--</div><small>Selected area only. Follow-up replies are allowed for separately.</small></article>
+    </div>
+    <p id="controller-funding"></p>
+    <div class="card table-wrap"><table id="controller-comparison">
+      <caption>Monthly cost by area &mdash; only ticked areas count in the total</caption>
+      <thead><tr><th>Area</th><th>In total?</th><th class="num">People</th><th class="num">Monthly estimate</th></tr></thead><tbody></tbody>
+    </table></div>
+    <div class="two-col">
+      <article class="card">
+        <h3 id="controller-breakdown-title"></h3>
+        <p id="controller-cost-explainer" class="budget-explainer"></p>
+        <div class="table-wrap"><table id="controller-costs"><thead><tr><th>What you are paying for</th><th class="num">Per month</th></tr></thead><tbody></tbody><tfoot></tfoot></table></div>
+      </article>
+      <article class="card">
+        <h3>What if we use it more?</h3>
+        <p>At the same service size, many costs stay the same even if fewer questions are asked. More questions do not necessarily double the whole bill.</p>
+        <div class="table-wrap"><table id="controller-sensitivity">
+          <thead><tr><th>Selected area</th><th class="num">Questions</th><th class="num">Per month</th></tr></thead><tbody></tbody>
+        </table></div>
+        <small>Compared with the team inputs above, before the busier-month multiplier. These are usage scenarios, not guaranteed capacity: higher demand may require IT to increase the service size, which costs extra.</small>
+      </article>
+    </div>
+    <div class="notice"><strong>Check with IT before approving this estimate</strong><p>These checks cover every ticked area, plus the area you are editing. Simplifying the presentation does not make the technical assumptions certain.</p><ul id="controller-warnings"></ul></div>
+  </section>
+  <section class="controller-only card section">
+    <h2>How to read this estimate</h2>
+    <ul>
+      <li><strong>Monthly estimate:</strong> your share of running costs, including any services already funded elsewhere. The detailed view records those allocations.</li>
+      <li><strong>Safety buffer:</strong> money set aside for uncertainty, not an extra Microsoft charge. The annual budget assumes 12 similar months, not a rollout schedule.</li>
+      <li><strong>Cost per person:</strong> the selected area's cost divided by its team size. The same people may appear in several areas, so we do not add them together.</li>
+      <li><strong>Behind the estimate:</strong> the default question mix is 60% financial statements, 20% KPI definitions and 20% exploratory analysis. IT can adjust this, service sizes and prices in the detailed view. Changes there also change this view.</li>
+    </ul>
+    <p><strong>Not your complete invoice.</strong> Copilot Studio / KPIpedia pricing, one-off implementation and migration, taxes, and unentered licensing, support, additional network services and excess-usage charges are excluded. A zero allowance does not mean an item is free.</p>
+    <p>The starting rates use Sweden Central services and global model pricing, checked 29 September 2026. Ask IT and purchasing to confirm service availability, suitable sizing and the prices under your Microsoft agreement. Some solution features are Preview (not fully released); the testing/daily-use design is not implemented or approved.</p>
+    <p>Use <strong>Detailed IT view</strong> for the complete assumptions, rate sources and exclusions. Export assumptions to share exactly the same budget with IT. Print this view for a plain-language budget summary.</p>
+  </section>
+  <section id="results" class="it-only" aria-label="Budget summary">
+    <div class="cards">
+      <article class="card"><div class="metric-label">Combined allocated / month</div><div class="metric accent" id="monthly">--</div><small>Selected environments, after discount</small></article>
+      <article class="card"><div class="metric-label">Estimated new spend / month</div><div class="metric" id="incremental">--</div><small>Not the same as service ownership cost</small></article>
+      <article class="card"><div class="metric-label">Annual planning budget</div><div class="metric" id="annual">--</div><small>12 months of allocated cost + contingency</small></article>
+      <article class="card"><div class="metric-label">Initial user questions / month</div><div class="metric" id="questions">--</div><small>Follow-ups and retries are added separately</small></article>
+    </div>
+    <section class="card">
+      <div class="section-head"><h2>Compare environments</h2><span class="badge">All values in USD</span></div>
+      <div class="table-wrap"><table id="comparison">
+        <thead><tr><th>Environment</th><th>Starting topology</th><th class="num">Questions</th><th class="num">Allocated / mo</th><th class="num">New spend / mo</th><th class="num">Per initial question</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p class="muted"><small>Each environment has its own services by default. If reusing a shared service, assign non-overlapping cost shares;
+        this is an allocation model, not an inventory-based deduplication engine. Buying a new shared capacity incurs its full invoice, even if only a share is allocated here.</small></p>
+    </section>
+  </section>
+  <section class="section it-only">
+    <div class="section-head"><div><span class="eyebrow">01 / assumptions</span><h2>Choose an environment to adjust</h2></div>
+      <label class="no-print">Workload comparison <select id="sensitivity"><option value="1">Base workload</option><option value="0.5">Low: 50% of initial questions</option><option value="2">High: 200% of initial questions</option><option value="" disabled>Custom factor (see budget controls)</option></select></label>
+    </div>
+    <p class="muted">Defaults: 10 pilot users, 25 staging testers, 250 production users; 22 active days.
+      Low/high scales demand only, not provisioned capacity. Change capacity separately after load testing.</p>
+    <div class="tabs" role="group" aria-label="Environment">
+      <button type="button" data-env="development" aria-pressed="true">Development</button>
+      <button type="button" data-env="staging" aria-pressed="false">Staging &middot; assumed</button>
+      <button type="button" data-env="production" aria-pressed="false">Production &middot; assumed</button>
+    </div>
+    <div id="environment-fields"></div>
+    <details><summary>Budget controls &amp; common calculation assumptions</summary><div class="detail-body fields" id="global-fields"></div></details>
+  </section>
+  <section id="environment-results" class="section it-only">
+    <div class="section-head"><div><span class="eyebrow">02 / estimated consumption</span><h2 id="detail-title">Development breakdown</h2></div><span id="detail-badge" class="badge"></span></div>
+    <div id="warnings" class="notice"></div>
+    <div class="two-col">
+      <article class="card"><h3>Where the monthly cost goes</h3><div id="bars"></div><p id="cost-split" class="muted"></p></article>
+      <article class="card"><h3>What drives service consumption</h3><div class="table-wrap"><table id="consumption"><tbody></tbody></table></div></article>
+    </div>
+    <article class="card"><h3>Service-level cost model</h3>
+      <div class="table-wrap"><table id="breakdown"><thead><tr><th>Component</th><th>Monthly quantity / charging basis</th><th class="num">Allocated</th><th class="num">New spend</th><th>Rate evidence</th></tr></thead><tbody></tbody><tfoot></tfoot></table></div>
+      <p id="initial-cost" class="muted"></p>
+    </article>
+    <article class="card section"><h3>Low / base / high demand at the selected capacity</h3>
+      <div class="table-wrap"><table id="sensitivity-table"><thead><tr><th>Scenario</th><th class="num">Initial questions</th><th class="num">Allocated / month</th><th class="num">Fabric average CU use*</th></tr></thead><tbody></tbody></table></div>
+      <small>*A planning diagnostic based on editable CU-seconds, not a performance forecast or automatic capacity recommendation.</small>
+    </article>
+  </section>
+  <section class="section it-only">
+    <span class="eyebrow">03 / transparent unit prices</span><h2>Rate card &amp; source register</h2>
+    <p class="muted">Edit rates to match your quote. An edited value is labelled <strong>User override</strong>, never a verified retail rate.
+      No automatic price refresh, currency conversion or Azure access occurs. To change region or deployment geography, replace the relevant rates, then export your assumptions.
+      Discounts below apply only to Azure retail-meter lines, not licences or illustrative reserves.</p>
+    <details><summary>Show editable rates, billing units and source links</summary><div class="detail-body table-wrap">
+      <table id="rates"><thead><tr><th>Component / unit</th><th>USD per unit</th><th>Evidence</th><th>Source &amp; qualification</th></tr></thead><tbody></tbody></table>
+    </div></details>
+  </section>
+  <section class="section it-only">
+    <span class="eyebrow">04 / boundaries</span><h2>Plan your deployment budget</h2>
+    <div class="two-col">
+      <article class="card"><h3>Included components</h3>
+        <ul>
+          <li>Foundry S0 account/project, hosted agent and direct routing/reranking/embedding model consumption. S0 is not an all-inclusive fee.</li>
+          <li>Azure AI Search Basic or S1; replica &times; partition hours, plus paid semantic requests.</li>
+          <li>Fabric F capacity and OneLake storage. SQL, Data Agent and seeding consume that capacity; they are not separately charged per query here.</li>
+          <li>Planned Cosmos DB NoSQL autoscale, Key Vault Standard, Application Insights / Log Analytics, and optional Private Link / DNS.</li>
+          <li>Azure Bot F0 standard Teams/M365 channels; no premium Direct Line channel assumed.</li>
+        </ul>
+      </article>
+      <article class="card"><h3>Not a completed production design</h3>
+        <ul>
+          <li>Activity API and Development managed state: <strong>Preview</strong>. See the repository support register for service versus SDK status.</li>
+          <li>Staging/Production Cosmos DB adapter and deployments are <strong>not implemented</strong>. Cosmos service itself is GA.</li>
+          <li>Key Vault and telemetry resource costs do not mean their application integration is already wired.</li>
+          <li>F2 is a service minimum, not a performance recommendation. Production F8 and Search S1 replicas are sizing assumptions.</li>
+          <li>Private endpoints alone do not solve native hosting, Bot ingress, SaaS access or private-only networking.</li>
+          <li>No separate AKS, App Service, Container Apps, Functions, VM, ACR or application Storage account is required by this native-code path.</li>
+        </ul>
+      </article>
+    </div>
+    <details><summary>Calculation method &amp; safeguards against double counting</summary><div class="detail-body">
+      <p class="formula">Initial questions = active users &times; active days &times; sessions/user/day &times; questions/session &times; demand factor<br>
+        Routed calls = initial questions &times; (1 + follow-up rate &times; routed share) &times; (1 + retry rate)<br>
+        Fuzzy lookups = routed calls &times; statement share &times; metadata terms/statement &times; fuzzy rate<br>
+        Direct model cost = uncached input + eligible cached input + billable output (including reasoning) + optional reranking</p>
+      <ul>
+        <li>The outer orchestrator selects at most one finance tool and does not rewrite its answer. This budget conservatively assumes one selected tool per routed call. Deterministic card follow-ups do not automatically add another outer model call.</li>
+        <li>Fabric and Copilot Studio internal model activity is not added to the application's direct GPT token bill. Their consumption belongs to their own billing systems.</li>
+        <li>Workload is a total across the selected implementation(s). Selecting both .NET and Python duplicates continuously provisioned runtime budgets and isolated state boundaries, not every question, Search service or Fabric capacity.</li>
+        <li>Native hosting costs vCPU-hours plus GiB-hours, not Container Apps consumption. The default provisioned-hours budget reflects the repository's replica-oriented deployment assumptions; it is <strong>not confirmation of its billing lifecycle</strong>. Current <a href="https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agents">hosted-agent documentation</a> describes per-session sandboxes with idle-timeout billing and no configurable replicas. Select that mode when applicable: sessions &times; (active minutes + idle tail) / 60, distributed across implementations without duplication. Verify measured billable session-hours and the Activity deployment's lifecycle before procurement.</li>
+        <li>Search service hours continue at zero queries. There is no daily Search pause assumption. Retained catalogue releases consume index capacity, not a new Search service each.</li>
+        <li>Fabric PAYG hours can be reduced only by actually pausing capacity. Paused capacity is unusable; pausing can settle remaining smoothed consumption. Capacity hours are not inferred from query execution time.</li>
+        <li><a href="https://learn.microsoft.com/fabric/fundamentals/data-agent-consumption">Fabric Data Agent inference</a> uses 100 / 10 / 400 CU-seconds per 1,000 uncached-input / cached-input / output tokens. The default 2,000 input + 500 output tokens therefore use 400 CU-seconds per exploration, plus separately assumed source-query work. These are <strong>Fabric</strong> tokens, not outer GPT tokens. Workload tokens, SQL and publication CU-seconds are unmeasured assumptions.</li>
+        <li>The Fabric diagnostic includes background load and headroom but cannot predict bursts, smoothing, throttling or overage. Overage is entered explicitly in billable CU-hours, never inferred from monthly average use. Confirm the capacity's <a href="https://learn.microsoft.com/fabric/enterprise/enable-capacity-overage">overage settings</a>; a threshold is not a hard spending cap. Use Capacity Metrics and a representative load test.</li>
+        <li>Copilot Studio / KPIpedia pricing is outside this calculator's scope. The KPI-definition route still contributes to the outer model's workload, but no Copilot Studio rates, credits or licence costs are included. KPIpedia can be replaced by an approved compatible existing agent; its pricing remains excluded.</li>
+        <li>Cosmos is provisioned autoscale, not serverless. Budget average hourly peaks, with the 10% floor; do not multiply request RUs by a serverless price. The estimate uses one shared-throughput pool per implementation and identical replicated-region sizing.</li>
+        <li>Telemetry is billed once through Log Analytics, not again for workspace-based Application Insights. Ingestion allowance defaults to zero; assign unused shared entitlements only once. Paid-retention GB is an explicit stored quantity, not the retention-day setting.</li>
+        <li>Recurring publication embeddings are in the monthly bill. The first catalogue embedding pass is shown separately, not silently charged every month. Spark preparation and validation remain inside Fabric capacity.</li>
+      </ul>
+    </div></details>
+    <details open><summary>Exclusions &amp; decisions before procurement</summary><div class="detail-body">
+      <p><strong>The displayed budget is not your complete invoice.</strong> Copilot Studio / KPIpedia pricing is excluded. Tax, support contracts, implementation labour, data migration,
+        extra backups/restore, multi-region transfer, internet egress, NAT, firewalls, VPN/ExpressRoute, DNS Private Resolver,
+        premium Bot channels, alerting/web tests, unentered Fabric overages, Power Platform extras and advanced Entra/M365 licences are not priced automatically.
+        Enter approved recurring licence/platform additions in the explicit allowance field; it defaults to zero because entitlements are unknown, not because these items are free.</p>
+      <p>Confirm model deployment geography/availability, native hosting billing, measured token/CU usage, networking and licences.
+        Excluded components are not assumed to be free; assess them separately.</p>
+      <p><strong>Agreement-specific pricing:</strong> replace list rates with your approved Microsoft or partner price list.
+        An illustrative blanket Azure discount cannot reproduce every EA/MCA/CSP term, reservation, commitment, benefit or SaaS licence condition.
+        If rates are already net of negotiated discounts, leave the discount control at zero.</p>
+      <p>For new purchases, use the full-capacity costs, not a team's allocation share. For shared services, agree all allocations with the platform owner.
+        Annualization is 12 identical planning months, not an annual commitment discount.</p>
+    </div></details>
+  </section>
+  <footer>
+    <p>Open this file directly in a modern browser; no server, CDN or cloud credentials are required. Assumptions are saved in this browser when local storage is permitted.
+      Use JSON export for a portable, persistent copy. Do not enter secrets, subscription IDs, customer names or financial data.</p>
+    <p class="it-only"><a href="finance-controller-architecture.md">Finance architecture</a> &middot; <a href="it-admin-catalogue.md">Component catalogue</a> &middot;
+      <a href="availability-and-support.md">Availability / support</a> &middot; <a href="customer-it-installation-guide.pdf">Customer installation handbook</a></p>
+  </footer>
+</main>
+<script id="calculator-model">
+"use strict";
+const CostPlanner = (() => {
+  const VERSION = 1;
+  const SNAPSHOT = "2026-09-29";
+  const environments = { development: "Development", staging: "Staging", production: "Production" };
+  const businessAreas = {
+    development: { label: "Build & try", purpose: "A small team tries the solution while it is being built." },
+    staging: { label: "Test before release", purpose: "Check changes before the wider finance team uses them." },
+    production: { label: "Daily use", purpose: "The finance team's regular working environment." }
+  };
+  const publicPrices = filter => `https://prices.azure.com/api/retail/prices?currencyCode=USD&$filter=${encodeURIComponent(filter + " and priceType eq 'Consumption'")}`;
+  const retail = (meter, region = "swedencentral") => publicPrices(`meterId eq '${meter}' and armRegionName eq '${region}'`);
+  const aiPrices = filter => publicPrices(`${filter} and armRegionName eq 'swedencentral'`);
+  const rate = (label, unit, value, status, url, note, discountable = true) => ({ label, unit, value, status, url, note, discountable });
+  const rates = {
+    hostCPU: rate("Native Foundry hosted CPU", "vCPU-hour", .10934, "Retail", aiPrices("productName eq 'Foundry Agents'"), "Sweden Central Hosted CPU; effective 2026-02-01. Verify actual billable lifecycle; not Container Apps pricing."),
+    hostMemory: rate("Native Foundry hosted memory", "GiB-hour", .01298, "Retail", aiPrices("productName eq 'Foundry Agents'"), "Sweden Central Hosted Memory; effective 2026-02-01. 1 vCPU + 2 GiB costs $0.13530 per billable instance-hour."),
+    managedState: rate("Development managed state reserve", "implementation-month", 10, "Assumption", "https://learn.microsoft.com/azure/foundry/agents/concepts/agent-state-store", "Actual conversation/state tariff UNKNOWN. $10 is an editable budget reserve, NOT a verified price or free-service claim; unrelated to vector storage or long-term Memory.", false),
+    modelInput: rate("GPT-5.4-mini input", "1M tokens", .75, "Retail", aiPrices("contains(meterName, '5.4 mini')"), "Azure Global Standard, Sweden Central resource, global processing; effective 2026-03-01. EU Data Zone alternative: $0.825; change all three GPT rates together."),
+    modelCached: rate("GPT-5.4-mini cached input", "1M tokens", .075, "Retail", aiPrices("contains(meterName, '5.4 mini')"), "Azure Global Standard. EU Data Zone: $0.0825. Only provider-eligible cached tokens; default cached share zero."),
+    modelOutput: rate("GPT-5.4-mini output", "1M tokens", 4.5, "Retail", aiPrices("contains(meterName, '5.4 mini')"), "Azure Global Standard. EU Data Zone: $4.95. Includes hidden reasoning. Regional Standard availability/price not established."),
+    embedding: rate("text-embedding-3-large", "1M tokens", .13, "Retail", aiPrices("contains(productName, 'OpenAI') and contains(meterName, 'large')"), "Global SKU ($0.00013/1K tokens). Data Zone $0.143/M; Regional $0.158/M. 1536 requested dimensions do not halve the token price."),
+    searchBasic: rate("Search Basic", "search-unit-hour", .101, "Retail", retail("0c873ca2-4113-4997-8cf6-ad5df5775599"), "Sweden Central; Basic Unit; PAYG."),
+    searchS1: rate("Search Standard S1", "search-unit-hour", .336, "Retail", retail("412d6928-652a-44ec-8bbb-d1dea652b7a6"), "Sweden Central; Standard S1 Unit; PAYG."),
+    semantic: rate("Search semantic ranker", "1,000 requests", 1, "Retail", retail("5a2a30ef-d680-5f61-937e-0c4a478c4d1d"), "Sweden Central; paid requests after any assigned allowance."),
+    fabricCU: rate("Fabric PAYG capacity", "CU-hour", .19, "Retail", aiPrices("serviceName eq 'Microsoft Fabric'"), "Sweden Central; F2 is two CUs: $0.38/hour, or $277.40 at 730 hours."),
+    fabricOverage: rate("Fabric capacity overage", "billable CU-hour", .57, "Retail", aiPrices("serviceName eq 'Microsoft Fabric'"), "Sweden Central; 3x PAYG CU rate. Enter measured/quoted overage separately; threshold does not guarantee a spending cap."),
+    onelake: rate("OneLake Hot storage", "GB-month", .023, "Retail", aiPrices("serviceName eq 'Microsoft Fabric'"), "Sweden Central ordinary Hot storage, excluding BCDR/cache. Storage remains billed while capacity is paused."),
+    cosmosRU: rate("Cosmos autoscale (single-write)", "100 RU/s-hour", .012, "Retail", retail("1d4a6e51-d27f-5c0e-84f0-a29b7d995874"), "Sweden Central; AP1 100 RUs. Already includes autoscale premium; do not multiply by 1.5 again."),
+    cosmosStorage: rate("Cosmos transactional storage", "GB-month per region", .25, "Retail", retail("feba2784-d0c5-55e9-8543-c57af5affe64"), "Sweden Central; no free-tier credit assumed."),
+    logs: rate("Log Analytics / App Insights ingestion", "GB", 2.99, "Retail", retail("e3669cc9-19b6-55fc-b9fe-782ab83615ab"), "Sweden Central Analytics Logs paid tier, tierMinimumUnits=5. Allocate remaining shared free GB separately."),
+    retention: rate("Log Analytics paid retention", "GB-month", .13, "Retail", retail("eccb9d04-6c73-5e3e-8f45-4298156f1a5e"), "Only data beyond included retention. App Insights tables generally include 90 days; ordinary Analytics tables differ."),
+    vault: rate("Key Vault Standard operations", "10,000 operations", .03, "Retail", retail("0f824807-2376-435c-95c9-f992b67a07b0"), "Sweden Central; secrets/software-key operations only; no Premium HSM or certificate renewal."),
+    endpoint: rate("Private Link endpoint", "endpoint-hour", .01, "Retail", retail("e6ab7238-e433-4fe0-a2b2-2b2564df2cdb", "Global"), "Global meter; number of endpoints is a topology assumption, not a tested network design."),
+    privateData: rate("Private Link processed traffic", "GB (ingress + egress)", .01, "Retail", retail("10caa28b-6479-4852-9eb7-610870cb6417", "Global"), "First 1 PB/month band in each direction. Conservative flat first-band planning only."),
+    dnsZone: rate("Private DNS zones", "zone-month", .5, "Retail", "https://azure.microsoft.com/pricing/details/dns/", "First 25 zones; $0.50/zone/month. Higher-volume tier not modelled."),
+    dnsQuery: rate("Private DNS queries", "1M queries", .4, "Retail", retail("46cff9cb-4b15-4af0-bf41-25143827fef8", ""), "Private query meter; DNS Private Resolver endpoints are NOT included.")
+  };
+  const field = (key, label, unit, values, min, max, note, step = "any") => ({ key, label, unit, values, min, max, note, step });
+  const groups = [
+    { title: "Workload & routing", open: true, fields: [
+      field("included", "Include in combined budget", "0 = no, 1 = yes", [1, 1, 1], 0, 1, "All three environments are compared; deselect an environment without deleting its assumptions.", 1),
+      field("users", "Active users", "people", [10, 25, 250], 0, 1000000, "Named active users, not the whole tenant.", 1),
+      field("days", "Active days / month", "days", [22, 22, 22], 0, 31, "Working-day assumption; infrastructure has a separate billing schedule.", 1),
+      field("sessions", "Sessions / user / active day", "sessions", [1, 1, 2], 0, 1000, "Expected average, including light and heavy users."),
+      field("questions", "Initial questions / session", "questions", [4, 4, 4], 0, 1000, "Do not count clarification replies here."),
+      field("followups", "Additional follow-ups", "% of initial questions", [20, 20, 20], 0, 500, "20 means 0.2 follow-up turns per initial question."),
+      field("routedFollowups", "Follow-ups needing the outer model", "% of follow-ups", [50, 50, 50], 0, 100, "The remainder is assumed deterministic, such as card selections."),
+      field("retries", "Extra attempt allowance", "% of all turns", [2, 2, 2], 0, 100, "Linear expected extra attempts, not a geometric retry probability."),
+      field("statementPct", "Financial statements", "% of routed calls", [60, 60, 60], 0, 100, "Fixed SQL + deterministic arithmetic."),
+      field("kpiPct", "KPI definitions / KPIpedia", "% of routed calls", [20, 20, 20], 0, 100, "Outer-model routing is counted; Copilot Studio / KPIpedia pricing is excluded. Set to zero only if the route is unused."),
+      field("explorePct", "Fabric exploratory analysis", "% of routed calls", [20, 20, 20], 0, 100, "The three tool shares must total 100%.")
+    ] },
+    { title: "Models, metadata & catalogue releases", fields: [
+      field("inputTokens", "Outer model input / call", "tokens", [3000, 3000, 3000], 0, 1000000, "System instructions, tool schemas and filtered context; validate with usage telemetry."),
+      field("outputTokens", "Outer billable output / call", "tokens incl. reasoning", [400, 400, 400], 0, 1000000, "Includes hidden reasoning; no final answer rewrite by the outer model."),
+      field("cachedPct", "Provider-cached input share", "% of input tokens", [0, 0, 0], 0, 100, "Use observed eligible cached tokens, not an assumed application cache hit rate."),
+      field("terms", "Metadata terms / statement", "lookups", [2, 2, 2], 0, 2, "Usually organization and KPI; exact terms avoid Search."),
+      field("fuzzyPct", "Terms needing fuzzy lookup", "% of terms", [20, 20, 20], 0, 100, "One query embedding and semantic search per fuzzy term."),
+      field("rerankPct", "Fuzzy lookups needing model narrowing", "% of fuzzy lookups", [50, 50, 50], 0, 100, "Extra direct GPT call, authorized candidate metadata only."),
+      field("rerankInput", "Reranker input / call", "tokens", [1500, 1500, 1500], 0, 1000000, "No cached-input discount assumed for reranking."),
+      field("rerankOutput", "Reranker billable output / call", "tokens incl. reasoning", [200, 200, 200], 0, 1000000, "Count reasoning as well as the returned IDs."),
+      field("queryTokens", "Embedding tokens / fuzzy lookup", "tokens", [20, 20, 20], 0, 100000, "Short KPI or organization phrase."),
+      field("entities", "Catalogue entities", "documents", [114, 114, 114], 1, 10000000, "Demo: 90 org nodes + 18 KPIs + 6 KPI groups.", 1),
+      field("documentTokens", "Embedding tokens / entity", "tokens", [160, 160, 160], 1, 100000, "Canonical name, hierarchy, definition and aliases."),
+      field("publishes", "Full catalogue republishes / month", "releases", [2, 1, 1], 0, 1000, "Recurring embedding passes, excluding the first-ever seed."),
+      field("retainedIndexes", "Retained release indexes", "indexes", [3, 3, 6], 1, 1000, "Separate index for each release; retention does not multiply query calls.", 1)
+    ] },
+    { title: "Provisioned runtime, Search & planned Cosmos", fields: [
+      field("implementations", "Deployed implementations", "1 or 2", [1, 1, 1], 1, 2, "One of .NET/Python normally; both duplicate runtime and state, not the same total workload.", 1),
+      field("hostMode", "Hosting lifecycle assumption", "billing model", ["Provisioned baseline", "Provisioned baseline", "Provisioned baseline"], null, null, "Default is a conservative continuous-instance budget for the repository deployment, NOT a verified lifecycle. Current native hosting docs use per-session sandboxes.", ["Provisioned baseline", "Per-session sandboxes"]),
+      field("cpu", "Hosted CPU / instance", "vCPU", [1, 1, 1], 1, 64, "Repository shape: 1 vCPU / 2 GiB. Other shapes require service support validation.", 1),
+      field("memory", "Hosted memory / instance", "GiB", [2, 2, 2], 1, 256, "Multiplied by billable instance-hours, not only model execution time."),
+      field("replicas", "Continuous instances / implementation", "instances", [1, 1, 2], 1, 100, "Provisioned-baseline budget only. Not a replica-setting claim for current per-session hosting.", 1),
+      field("hostHours", "Provisioned hosting hours / month", "hours per instance", [730, 730, 730], 0, 744, "Provisioned-baseline mode only; decrease only for a real stop/deallocation schedule."),
+      field("sessionMinutes", "Active time / hosted session", "minutes", [10, 10, 10], 0, 10000, "Per-session mode only. One billable session per workload session; revise for session reuse or splitting."),
+      field("idleMinutes", "Billed idle tail / hosted session", "minutes", [15, 15, 15], 2, 60, "Per-session mode only. Current default timeout is 15 minutes (configurable 2-60); explicitly ended sessions need measured lifecycle adjustment."),
+      field("searchTier", "Search tier", "Basic or S1", ["Basic", "S1", "S1"], null, null, "Staging/Production S1 is an assumption.", ["Basic", "S1"]),
+      field("searchReplicas", "Search replicas", "replicas", [1, 1, 3], 1, 12, "Production three is a planning choice, not load-tested sizing.", 1),
+      field("searchPartitions", "Search partitions", "partitions", [1, 1, 1], 1, 12, "Basic supports at most 3 partitions; S1 up to 12, subject to limits.", 1),
+      field("searchAllocation", "Search cost allocation", "% to this environment", [100, 100, 100], 0, 100, "For shared Search, assign non-overlapping shares across environments."),
+      field("searchNew", "Allocated Search cost that is new spend", "% of allocated capacity cost", [100, 100, 100], 0, 100, "Zero means already funded capacity, not free service. Semantic requests remain fully incremental."),
+      field("semanticFree", "Assigned unused semantic allowance", "requests / month", [0, 0, 0], 0, 1000000, "Conservative zero. Enter an approved remaining service allowance only once."),
+      field("cosmos", "Use planned Cosmos state", "0 = managed Preview, 1 = Cosmos", [0, 1, 1], 0, 1, "Cosmos adapter is not implemented; this is a budget comparison only.", 1),
+      field("cosmosMax", "Cosmos autoscale maximum / implementation", "RU/s", [1000, 1000, 4000], 1000, 10000000, "One shared pool per implementation; increments of 1000; no free tier assumed.", 1000),
+      field("cosmosPeak", "Average of hourly autoscale peaks", "% of maximum", [20, 20, 30], 0, 100, "Billing uses hourly peaks, not average request traffic. A 10% floor is enforced."),
+      field("cosmosRegions", "Cosmos replicated regions", "regions", [1, 1, 2], 1, 10, "Single-write account. Each region budgeted at the same Sweden Central rate; real region prices/transfer differ.", 1),
+      field("cosmosGB", "Cosmos state / implementation", "GB per region", [1, 2, 10], 0, 100000, "Filtered conversation state only, not finance facts. Additional backup/restore costs excluded.")
+    ] },
+    { title: "Fabric capacity, Data Agent & OneLake", fields: [
+      field("fabricCU", "Fabric capacity SKU", "capacity units", [2, 2, 8], null, null, "F2 dev/staging, F8 production are assumptions. Minimum availability does not establish performance.", [2, 4, 8, 16, 32, 64, 128, 256]),
+      field("fabricHours", "Fabric unpaused hours / month", "hours", [220, 220, 730], 0, 744, "Dev/staging assume 22 x 10h and actual nightly pausing. Not a supplied automation."),
+      field("fabricAllocation", "Fabric capacity cost allocation", "% to this environment", [100, 100, 100], 0, 100, "For a shared capacity, allocate non-overlapping shares; capacity invoice remains 100%."),
+      field("fabricNew", "Allocated Fabric capacity that is new spend", "% of allocated capacity cost", [100, 100, 100], 0, 100, "Set zero only when existing funded capacity has room. Extra OneLake storage remains incremental."),
+      field("onelakeGB", "Finance + metadata storage", "GB in OneLake", [10, 10, 100], 0, 10000000, "New stored data attributed to this environment; persists while paused."),
+      field("statementCU", "Statement workload", "CU-seconds / routed statement", [10, 10, 10], 0, 1000000, "UNMEASURED. Includes catalogue authorization, period comparisons and SQL. Calibrate with Capacity Metrics."),
+      field("fabricInput", "Data Agent internal input / exploration", "tokens", [2000, 2000, 2000], 0, 10000000, "Unmeasured total across internal calls, including schemas, instructions and history; distinct from the outer GPT model."),
+      field("fabricOutput", "Data Agent internal output / exploration", "tokens", [500, 500, 500], 0, 10000000, "Unmeasured total across internal calls; inference converted to CU-seconds, not another GPT invoice."),
+      field("fabricCached", "Data Agent cached input share", "%", [0, 0, 0], 0, 100, "Only observed eligible cached tokens. CU rates per 1K: input 100, cached 10, output 400."),
+      field("exploreCU", "Exploration source-query work", "additional CU-seconds / exploration", [20, 20, 20], 0, 1000000, "UNMEASURED SQL/DAX/KQL execution, in addition to Data Agent inference CUs calculated from tokens."),
+      field("overageHours", "Expected billable Fabric overage", "CU-hours / month", [0, 0, 0], 0, 10000000, "Explicit estimate only. Zero means no overage budgeted, not that overage is disabled. No automatic monthly-average extrapolation."),
+      field("publishCU", "Spark / publication workload", "CU-seconds / republish", [3600, 3600, 3600], 0, 100000000, "UNMEASURED, recurring stage + validate pipeline; not an extra cash charge."),
+      field("backgroundPct", "Other Fabric workload", "% of full capacity", [20, 20, 30], 0, 100, "Other workloads already using the capacity, separate from this application's CU estimate."),
+      field("headroomPct", "Fabric capacity headroom", "% to reserve", [30, 30, 30], 0, 99, "Warn when estimated average use + other workloads exceeds remaining capacity."),
+    ] },
+    { title: "Telemetry, secrets, networking & licence additions", fields: [
+      field("logsBase", "Background telemetry / month", "GB", [1, 2, 10], 0, 100000, "Idle logs, metrics exported as logs, startup and platform diagnostics."),
+      field("logsPerTurn", "Additional telemetry / handled turn", "KB (decimal)", [10, 10, 10], 0, 100000, "Avoid storing prompts, financial responses and secrets. 1,000,000 KB = 1 GB."),
+      field("logsFree", "Assigned unused ingestion allowance", "GB / month", [0, 0, 0], 0, 100000, "Shared billing allowance: default zero so it is not counted independently in three environments."),
+      field("retentionGB", "Extra paid retained logs", "GB-month", [0, 0, 20], 0, 10000000, "Only retention beyond the tables' included period, entered as average stored GB."),
+      field("vaultOps", "Key Vault Standard operations", "operations / month", [10000, 10000, 100000], 0, 1000000000, "Includes planned credential retrieval; not a request per token. No Premium requirement.", 1),
+      field("endpoints", "Private endpoints", "endpoints", [0, 4, 5], 0, 1000, "Topology allowance only. Validate which services support the required network path.", 1),
+      field("privateGB", "Private Link traffic", "GB in + out / month", [0, 5, 50], 0, 10000000, "Sum both directions; separate from internet/region egress."),
+      field("dnsZones", "Private DNS zones", "zones", [0, 3, 4], 0, 25, "First pricing band; no Private Resolver endpoints.", 1),
+      field("dnsQueries", "Private DNS queries", "queries / month", [0, 100000, 1000000], 0, 1000000000, "Expected DNS traffic, not finance query count.", 1),
+      field("extraMonthly", "Additional approved recurring costs", "USD / month", [0, 0, 0], 0, 10000000, "In-scope network appliances, Entra or support quotes; not Copilot Studio. Zero means excluded / to confirm, NOT free.")
+    ] }
+  ];
+  const globals = [
+    field("monthHours", "Infrastructure billing month", "hours", [730], 1, 744, "730-hour normalized month for Search, Cosmos and endpoints; adjust for the actual billing month."),
+    field("discountPct", "Negotiated Azure meter discount", "%", [0], 0, 100, "Agreement-specific estimate for eligible Azure meters only; not reserves. Use zero if unit rates already include your negotiated discounts."),
+    field("contingencyPct", "Budget contingency", "%", [15], 0, 100, "Added to planning budget, not presented as service consumption or a vendor fee."),
+    field("demandFactor", "Workload factor", "multiple of initial questions", [1], 0, 100, "Low/base/high selector changes this. Does not scale idle capacity, publishes or existing fixed quantities.")
+  ];
+  const allFields = groups.flatMap(group => group.fields);
+  function defaults() {
+    return {
+      version: VERSION,
+      global: Object.fromEntries(globals.map(f => [f.key, f.values[0]])),
+      environments: Object.fromEntries(Object.keys(environments).map((key, i) => [key, Object.fromEntries(allFields.map(f => [f.key, f.values[i]]))])),
+      prices: Object.fromEntries(Object.entries(rates).map(([key, r]) => [key, r.value]))
+    };
+  }
+  function validate(state) {
+    const errors = [];
+    const object = x => x !== null && typeof x === "object" && !Array.isArray(x);
+    const shape = (x, keys, path) => {
+      if (!object(x) || Object.keys(x).length !== keys.length || keys.some(k => !Object.hasOwn(x, k))) {
+        errors.push({ path, message: `${path}: invalid or incompatible configuration fields.` });
+        return false;
+      }
+      return true;
+    };
+    if (!shape(state, ["version", "global", "environments", "prices"], "Scenario")) return errors;
+    if (state.version !== VERSION) errors.push({ path: "version", message: "Unsupported scenario version." });
+    const check = (value, f, path) => {
+      const choices = Array.isArray(f.step);
+      const invalid = choices ? !f.step.includes(value) : typeof value !== "number" || !Number.isFinite(value) || value < f.min || value > f.max || (f.step !== "any" && !Number.isInteger(value / f.step));
+      if (invalid) errors.push({ path, message: `${path}: ${f.label} must be ${choices ? f.step.join(" or ") : `between ${f.min} and ${f.max}${f.step !== "any" ? ` in increments of ${f.step}` : ""}`}.` });
+    };
+    const validGlobal = shape(state.global, globals.map(f => f.key), "global");
+    if (validGlobal) globals.forEach(f => check(state.global[f.key], f, `global.${f.key}`));
+    if (shape(state.prices, Object.keys(rates), "prices")) Object.keys(rates).forEach(k => {
+      if (typeof state.prices[k] !== "number" || !Number.isFinite(state.prices[k]) || state.prices[k] < 0 || state.prices[k] > 1000000)
+        errors.push({ path: `prices.${k}`, message: `${rates[k].label}: enter a finite USD rate from 0 to 1,000,000.` });
+    });
+    if (shape(state.environments, Object.keys(environments), "environments")) Object.keys(environments).forEach(key => {
+      const e = state.environments[key], prefix = `environments.${key}`;
+      if (!shape(e, allFields.map(f => f.key), prefix)) return;
+      allFields.forEach(f => check(e[f.key], f, `${prefix}.${f.key}`));
+      if (Math.abs(e.statementPct + e.kpiPct + e.explorePct - 100) > .000001)
+        errors.push({ path: `${prefix}.statementPct`, relatedPaths: [`${prefix}.kpiPct`, `${prefix}.explorePct`], message: `${environments[key]}: statement, KPIpedia and exploration percentages must total 100%.` });
+      if (validGlobal && e.hostMode === "Provisioned baseline" && e.hostHours > state.global.monthHours)
+        errors.push({ path: `${prefix}.hostHours`, relatedPaths: ["global.monthHours"], message: `${environments[key]}: hosting hours cannot exceed the billing month.` });
+      if (validGlobal && e.fabricHours > state.global.monthHours)
+        errors.push({ path: `${prefix}.fabricHours`, relatedPaths: ["global.monthHours"], message: `${environments[key]}: Fabric hours cannot exceed the billing month.` });
+      if (e.searchTier === "Basic" && e.searchPartitions > 3)
+        errors.push({ path: `${prefix}.searchPartitions`, message: `${environments[key]}: Basic supports at most three partitions.` });
+      if (e.searchReplicas * e.searchPartitions > 36)
+        errors.push({ path: `${prefix}.searchReplicas`, message: `${environments[key]}: this calculator supports at most 36 Search units.` });
+      if (e.cosmos && e.cosmosMax < Math.ceil(Math.max(1000, e.cosmosGB * 10) / 1000) * 1000)
+        errors.push({ path: `${prefix}.cosmosMax`, message: `${environments[key]}: Cosmos maximum is below the minimum required by entered storage.` });
+    });
+    return errors;
+  }
+  function calculate(state, key, factor) {
+    const errors = validate(state);
+    if (errors.length) throw new Error(errors.map(e => e.message).join("\n"));
+    if (factor === undefined) factor = state.global.demandFactor;
+    if (!Object.hasOwn(environments, key) || !Number.isFinite(factor) || factor < 0 || factor > 100) throw new Error("Invalid environment or workload factor.");
+    const e = state.environments[key], g = state.global, p = state.prices;
+    const pct = n => n / 100;
+    const initial = e.users * e.days * e.sessions * e.questions * factor;
+    const hostedSessions = e.users * e.days * e.sessions * factor;
+    const sessionMode = e.hostMode === "Per-session sandboxes";
+    const hostInstanceHours = sessionMode ? hostedSessions * (e.sessionMinutes + e.idleMinutes) / 60 : e.implementations * e.replicas * e.hostHours;
+    const turns = initial * (1 + pct(e.followups)) * (1 + pct(e.retries));
+    const routed = initial * (1 + pct(e.followups) * pct(e.routedFollowups)) * (1 + pct(e.retries));
+    const statements = routed * pct(e.statementPct), definitions = routed * pct(e.kpiPct), explorations = routed * pct(e.explorePct);
+    const fuzzy = statements * e.terms * pct(e.fuzzyPct), reranks = fuzzy * pct(e.rerankPct);
+    const input = routed * e.inputTokens, cached = input * pct(e.cachedPct), output = routed * e.outputTokens;
+    const queryEmbeddingTokens = fuzzy * e.queryTokens, publicationTokens = e.entities * e.documentTokens * e.publishes;
+    const logGB = e.logsBase + turns * e.logsPerTurn / 1000000;
+    const billableRU = e.cosmosMax * Math.max(.1, pct(e.cosmosPeak));
+    const fabricInferencePerCall = (e.fabricInput * (1 - pct(e.fabricCached)) * 100 + e.fabricInput * pct(e.fabricCached) * 10 + e.fabricOutput * 400) / 1000;
+    const fabricSeconds = statements * e.statementCU + explorations * (fabricInferencePerCall + e.exploreCU) + e.publishes * e.publishCU;
+    const fabricAvailable = e.fabricCU * e.fabricHours * 3600;
+    const fabricLoad = fabricAvailable > 0 ? fabricSeconds / fabricAvailable * 100 + e.backgroundPct : null;
+    const lines = [];
+    function add(name, category, priceKeys, quantity, raw, capacity = false, allocation = 100, newPct = 100) {
+      const discount = priceKeys.every(k => rates[k].discountable) ? 1 - pct(g.discountPct) : 1;
+      const allocated = raw * pct(allocation) * discount;
+      const evidence = priceKeys.some(k => p[k] !== rates[k].value) ? "User override" : priceKeys.some(k => rates[k].status === "Assumption") ? "Assumption" : "Public rate";
+      lines.push({ name, category, quantity, raw, allocated, incremental: allocated * pct(newPct), capacity, evidence });
+    }
+    const n = x => Number(x.toFixed(2)).toLocaleString("en-US");
+    add("Foundry native hosted runtime", "Hosting / state", ["hostCPU", "hostMemory"], `${n(hostInstanceHours)} ${sessionMode ? "session" : "provisioned instance"}-hours x (${e.cpu} vCPU + ${e.memory} GiB)`, hostInstanceHours * (e.cpu * p.hostCPU + e.memory * p.hostMemory), !sessionMode);
+    if (!e.cosmos) add("Managed conversation state (Preview)", "Hosting / state", ["managedState"], `${e.implementations} implementation-month(s), allowance`, e.implementations * p.managedState, true);
+    add("Outer routing model", "Direct models", ["modelInput", "modelCached", "modelOutput"], `${n(routed)} calls; ${n(input)} input / ${n(output)} output tokens`, ((input - cached) * p.modelInput + cached * p.modelCached + output * p.modelOutput) / 1000000);
+    add("Constrained metadata reranker", "Direct models", ["modelInput", "modelOutput"], `${n(reranks)} calls`, reranks * (e.rerankInput * p.modelInput + e.rerankOutput * p.modelOutput) / 1000000);
+    add("Query + recurring publication embeddings", "Direct models", ["embedding"], `${n(queryEmbeddingTokens + publicationTokens)} tokens`, (queryEmbeddingTokens + publicationTokens) * p.embedding / 1000000);
+    const searchKey = e.searchTier === "Basic" ? "searchBasic" : "searchS1";
+    add(`Azure AI Search ${e.searchTier}`, "Search", [searchKey], `${e.searchReplicas} replicas x ${e.searchPartitions} partitions x ${g.monthHours}h; ${e.searchAllocation}% allocated`, e.searchReplicas * e.searchPartitions * g.monthHours * p[searchKey], true, e.searchAllocation, e.searchNew);
+    add("Semantic ranker", "Search", ["semantic"], `${n(Math.max(0, fuzzy - e.semanticFree))} paid requests`, Math.max(0, fuzzy - e.semanticFree) / 1000 * p.semantic);
+    add(`Fabric F${e.fabricCU} PAYG capacity`, "Fabric", ["fabricCU"], `${e.fabricCU} CUs x ${e.fabricHours}h; ${e.fabricAllocation}% allocated`, e.fabricCU * e.fabricHours * p.fabricCU, true, e.fabricAllocation, e.fabricNew);
+    add("Fabric entered overage", "Fabric", ["fabricOverage"], `${n(e.overageHours)} billable CU-hours, explicit assumption`, e.overageHours * p.fabricOverage);
+    add("OneLake finance + metadata storage", "Fabric", ["onelake"], `${n(e.onelakeGB)} GB-month`, e.onelakeGB * p.onelake);
+    if (e.cosmos) {
+      add("Cosmos NoSQL autoscale (planned)", "Hosting / state", ["cosmosRU"], `${n(billableRU)} RU/s x ${e.cosmosRegions} regions x ${e.implementations} pool(s) x ${g.monthHours}h`, billableRU / 100 * e.cosmosRegions * e.implementations * g.monthHours * p.cosmosRU, true);
+      add("Cosmos transactional storage (planned)", "Hosting / state", ["cosmosStorage"], `${n(e.cosmosGB * e.cosmosRegions * e.implementations)} GB-month`, e.cosmosGB * e.cosmosRegions * e.implementations * p.cosmosStorage);
+    }
+    add("Application Insights / Log Analytics", "Operations", ["logs", "retention"], `${n(Math.max(0, logGB - e.logsFree))} paid ingestion GB + ${n(e.retentionGB)} extra retained GB`, Math.max(0, logGB - e.logsFree) * p.logs + e.retentionGB * p.retention);
+    add("Key Vault Standard", "Operations", ["vault"], `${n(e.vaultOps)} operations`, e.vaultOps / 10000 * p.vault);
+    add("Private Link endpoints", "Networking", ["endpoint"], `${e.endpoints} endpoints x ${g.monthHours}h`, e.endpoints * g.monthHours * p.endpoint, true);
+    add("Private Link data", "Networking", ["privateData"], `${n(e.privateGB)} GB in + out`, e.privateGB * p.privateData);
+    add("Private DNS zones + queries", "Networking", ["dnsZone", "dnsQuery"], `${e.dnsZones} zones + ${n(e.dnsQueries)} queries`, e.dnsZones * p.dnsZone + e.dnsQueries / 1000000 * p.dnsQuery);
+    lines.push({ name: "Foundry S0 / Bot F0 standard channel", category: "Platform", quantity: "No separate base fee added; hosting/models counted above", raw: 0, allocated: 0, incremental: 0, capacity: true, evidence: "Scope note" });
+    lines.push({ name: "Approved recurring additions", category: "Other", quantity: e.extraMonthly ? "User-entered monthly allowance" : "Excluded / confirm entitlements, not proven free", raw: e.extraMonthly, allocated: e.extraMonthly, incremental: e.extraMonthly, capacity: true, evidence: "Assumption" });
+    const allocated = lines.reduce((sum, line) => sum + line.allocated, 0);
+    const incremental = lines.reduce((sum, line) => sum + line.incremental, 0);
+    const fixed = lines.filter(line => line.capacity).reduce((sum, line) => sum + line.allocated, 0);
+    const warnings = [], businessWarnings = [];
+    const warn = (technical, business) => { warnings.push(technical); businessWarnings.push(business); };
+    warn(sessionMode ? "Hosting assumes one sandbox per workload session, including an idle tail. Measure actual billable hours; no configured replica count is used." : "Hosting uses a continuous-instance budget, not a verified Activity lifecycle. Current native hosting docs use per-session sandboxes; confirm which model applies.",
+      sessionMode ? "Running costs assume each conversation is billed for active time plus an idle period. IT must check actual billed time." : "Running costs assume the assistant stays available for the budgeted hours. IT must confirm how it will actually be billed.");
+    warn("Copilot Studio / KPIpedia pricing is excluded. Other licence/network/support exclusions remain; zero additions do not certify zero cost.",
+      "KPI-definition agent pricing (Copilot Studio / KPIpedia) is excluded; other unentered licence, network and support costs are not assumed free.");
+    if (key !== "development") warn("Staging/Production service catalogue and sizing are assumptions; Cosmos state integration is not implemented.",
+      "The service choices and sizes are assumptions. Parts of the design are not implemented; this is not a ready-to-use deployment.");
+    if (!e.cosmos) warn("Managed conversation/state price is UNKNOWN. The entered monthly amount is a budget reserve only, not a verified tariff.",
+      "The price for keeping conversation history is unknown. A placeholder budget reserve is included, not a confirmed supplier price.");
+    if (e.fabricHours < g.monthHours) warn("Fabric assumes a real pause schedule. Requests outside unpaused hours cannot use finance dependencies.",
+      "Savings assume finance-data processing is switched off part of the month. The assistant cannot answer finance-data questions during those hours.");
+    if (fabricLoad === null && fabricSeconds > 0) warn("No unpaused Fabric hours: the workload cannot run. A zero capacity bill is not a feasible deployment.",
+      "No running time is budgeted for finance-data processing. The planned workload cannot run; this is not a usable zero-cost option.");
+    if (fabricLoad !== null && fabricLoad > 100 - e.headroomPct) warn(`Fabric average estimated load is ${n(fabricLoad)}%, above the ${100 - e.headroomPct}% headroom target. Re-size and load-test; no automatic overage cost is added.`,
+      "Estimated usage exceeds the planned spare capacity. IT must test and possibly increase service size; this estimate does not automatically add that extra cost.");
+    if (e.retainedIndexes > (e.searchTier === "Basic" ? 15 : 50)) warn("Retained index count exceeds this tier's usual index-count limit. Check current service limits.",
+      "Too many versions of the KPI/organisation catalogue are retained for the assumed service size. IT must review it.");
+    if (hostInstanceHours === 0 && routed > 0) warn("Hosting has zero provisioned hours but nonzero demand: no runnable hosted service is budgeted.",
+      "People are expected to use the assistant, but no running time is budgeted. The assistant cannot serve this demand.");
+    if (e.searchAllocation < 100 || e.fabricAllocation < 100) warn("Allocation is not invoice reduction. Keep shared-resource shares non-overlapping; a new capacity purchase still costs 100%.",
+      "Only part of a shared service's cost is allocated here. A new purchase still needs funding for the whole service; do not allocate the same cost twice.");
+    if (e.cosmosRegions > 1) warn("Replicated Cosmos regions use one reference regional rate. Cross-region traffic, backup and distinct regional prices need a quote.",
+      "Conversation history is copied to more than one location. Location-specific prices, data transfer and extra backup costs need confirmation.");
+    if (e.endpoints === 0 && e.privateGB > 0) warn("Private Link traffic is entered without any private endpoints; check topology or shared-endpoint attribution.",
+      "Private data traffic is budgeted without a private connection. IT must check whether a shared connection is available.");
+    if (Object.keys(rates).some(k => p[k] === 0)) warn("At least one unit rate is zero. Confirm this is an intentional quote/entitlement, not a missing price.",
+      "At least one price has been set to zero. Purchasing must confirm it is covered by your agreement, rather than a missing price.");
+    return { initial, hostedSessions, hostInstanceHours, turns, routed, statements, definitions, explorations, fuzzy, reranks, input, cached, output, queryEmbeddingTokens, publicationTokens, logGB, billableRU, fabricInferencePerCall, fabricSeconds, fabricLoad, lines, allocated, incremental, fixed, variable: allocated - fixed,
+      perQuestion: initial > 0 ? allocated / initial : null,
+      annual: allocated * 12 * (1 + pct(g.contingencyPct)),
+      initialEmbeddingCost: e.entities * e.documentTokens / 1000000 * p.embedding * (1 - pct(g.discountPct)),
+      vectorMB: e.entities * e.retainedIndexes * 1536 * 4 / 1000000, warnings, businessWarnings };
+  }
+  function combined(state) {
+    const results = Object.fromEntries(Object.keys(environments).map(k => [k, calculate(state, k)]));
+    const selected = Object.keys(environments).filter(k => state.environments[k].included === 1).map(k => results[k]);
+    const sum = field => selected.reduce((total, r) => total + r[field], 0);
+    return { results, allocated: sum("allocated"), incremental: sum("incremental"), annual: sum("annual"), initial: sum("initial") };
+  }
+  function controllerSummary(state, key) {
+    const result = calculate(state, key), beforeQuestions = calculate(state, key, 0).allocated;
+    const categories = {
+      "Hosting / state": "Running the assistant & keeping conversation history",
+      "Direct models": "Understanding questions",
+      Search: "Finding the right KPI or organisation",
+      Fabric: "Working with finance data",
+      Operations: "Monitoring & access protection",
+      Networking: "Private connections",
+      Platform: "Connecting to your chat channel",
+      Other: "Other approved recurring costs"
+    };
+    return {
+      beforeQuestions, addedUsage: result.allocated - beforeQuestions,
+      perPerson: state.environments[key].users > 0 ? result.allocated / state.environments[key].users : null,
+      costs: Object.entries(categories).map(([category, label]) => ({
+        label, amount: result.lines.filter(line => line.category === category).reduce((total, line) => total + line.allocated, 0)
+      }))
+    };
+  }
+  return { VERSION, SNAPSHOT, environments, businessAreas, rates, groups, globals, defaults, validate, calculate, combined, controllerSummary };
+})();
+if (typeof module !== "undefined" && module.exports) module.exports = CostPlanner;
+</script>
+<script>
+"use strict";
+(() => {
+  const model = CostPlanner, storageKey = "zavafinance-cost-planner-v1";
+  let state = model.defaults(), selected = "production", view = "controller";
+  const businessFields = {
+    users: { label: "How many people will use it?", unit: "people", note: "People using this area, not everyone in the organisation." },
+    days: { label: "On how many days each month?", unit: "working days", note: "Start with 22 for a typical working month." },
+    sessions: { label: "How often will each person open a conversation?", unit: "times per working day", note: "For example, one morning check and one afternoon check = 2." },
+    questions: { label: "How many questions in each conversation?", unit: "new questions", note: "For example, a revenue question and a margin question = 2. Do not include clarification replies." },
+    contingencyPct: { label: "Safety buffer for the annual budget", unit: "%", note: "Applies to every included area. This reserve is not an extra supplier charge." },
+    demandFactor: { label: "Busier-month multiplier", unit: "times normal use", note: "1 = normal, 0.5 = half, 2 = twice the conversations. Applies to all areas; it does not change the IT service sizes." }
+  };
+  const $ = id => document.getElementById(id);
+  const money = x => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(x);
+  const num = x => new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(x);
+  const node = (tag, text, className) => {
+    const el = document.createElement(tag);
+    if (text !== undefined) el.textContent = text;
+    if (className) el.className = className;
+    return el;
+  };
+  const setStatus = text => { $("status").textContent = text; };
+  function validateImport(value) {
+    const errors = model.validate(value);
+    if (errors.length) throw new Error(errors[0].message);
+    return value;
+  }
+  try {
+    const saved = localStorage.getItem(storageKey);
+    if (saved) { state = validateImport(JSON.parse(saved)); setStatus("Restored your saved assumptions. Export JSON to keep a portable copy."); }
+    else setStatus("Assumed baseline loaded. Changes stay in this browser; use Export for a portable copy.");
+  } catch (error) { setStatus(`Saved assumptions could not be loaded: ${error.message}. Baseline shown; use JSON export to preserve edits.`); }
+  function bindField(f, path, value, prefix = "") {
+    const container = node("div", undefined, "field");
+    const id = prefix + path.replaceAll(".", "-");
+    const label = node("label", `${f.label} (${f.unit})`); label.htmlFor = id;
+    let input;
+    if (Array.isArray(f.step)) {
+      input = node("select");
+      f.step.forEach(choice => {
+        const option = node("option", f.key === "fabricCU" ? `F${choice} (${choice} CUs)` : String(choice));
+        option.value = String(choice); input.append(option);
+      });
+    } else {
+      input = node("input"); input.type = "number"; input.min = f.min; input.max = f.max; input.step = f.step;
+    }
+    input.id = id; input.dataset.path = path; input.value = value; input.setAttribute("aria-describedby", `${id}-help`);
+    const help = node("small", f.note); help.id = `${id}-help`;
+    input.addEventListener("input", () => {
+      const keys = path.split("."), target = keys.slice(0, -1).reduce((obj, key) => obj[key], state);
+      target[keys.at(-1)] = typeof f.values[0] === "string" ? input.value : input.value.trim() === "" ? null : Number(input.value);
+      refresh();
+    });
+    container.append(label, input, help);
+    return container;
+  }
+  function renderInputs() {
+    renderControllerInputs();
+    $("environment-fields").replaceChildren();
+    model.groups.forEach(group => {
+      const detail = node("details"); detail.open = !!group.open;
+      detail.append(node("summary", group.title));
+      const body = node("div", undefined, "detail-body fields");
+      group.fields.forEach(f => body.append(bindField(f, `environments.${selected}.${f.key}`, state.environments[selected][f.key])));
+      detail.append(body); $("environment-fields").append(detail);
+    });
+    $("global-fields").replaceChildren(...model.globals.map(f => bindField(f, `global.${f.key}`, state.global[f.key])));
+    const body = $("rates").querySelector("tbody"); body.replaceChildren();
+    Object.entries(model.rates).forEach(([key, r]) => {
+      const tr = node("tr"), name = node("td", undefined, "rate-name"); name.append(node("strong", r.label), node("div", r.unit, "muted"));
+      const amount = node("td"), input = node("input", undefined, "rate-input"); input.type = "number"; input.min = 0; input.max = 1000000; input.step = "any";
+      input.value = state.prices[key]; input.dataset.path = `prices.${key}`; input.setAttribute("aria-label", `${r.label} USD per ${r.unit}`);
+      input.addEventListener("input", () => { state.prices[key] = input.value.trim() === "" ? null : Number(input.value); refresh(); });
+      amount.append(input);
+      const status = node("td"); status.id = `rate-status-${key}`;
+      const note = node("td", undefined, "rate-note"), link = node("a", "Public source"); link.href = r.url; link.target = "_blank"; link.rel = "noopener noreferrer";
+      note.append(link, node("div", r.note), node("small", `Checked ${model.SNAPSHOT}. ${r.discountable ? "Azure discount eligible." : "No Azure discount applied."}`));
+      tr.append(name, amount, status, note); body.append(tr);
+    });
+  }
+  function renderControllerInputs() {
+    $("controller-scope").replaceChildren(...Object.entries(model.businessAreas).map(([key, area]) => {
+      const card = node("article", undefined, "card"), button = node("button", area.label);
+      button.type = "button"; button.dataset.controllerEnv = key; button.setAttribute("aria-pressed", String(key === selected));
+      button.addEventListener("click", () => selectEnvironment(key));
+      const label = node("label"), checkbox = node("input");
+      checkbox.type = "checkbox"; checkbox.dataset.path = `environments.${key}.included`; checkbox.checked = state.environments[key].included === 1;
+      checkbox.setAttribute("aria-label", `Include ${area.label} in total`);
+      checkbox.addEventListener("change", () => { state.environments[key].included = Number(checkbox.checked); refresh(); });
+      label.append(checkbox, node("span", "Include in total"));
+      card.append(button, node("small", `${area.purpose} (${model.environments[key]})`), label);
+      return card;
+    }));
+    $("controller-team-title").textContent = `Team assumptions: ${model.businessAreas[selected].label}`;
+    const fields = model.groups.flatMap(group => group.fields).filter(f => ["users", "days", "sessions", "questions"].includes(f.key));
+    $("controller-fields").replaceChildren(...fields.map(f => bindField({ ...f, ...businessFields[f.key] }, `environments.${selected}.${f.key}`, state.environments[selected][f.key], "controller-")));
+    $("controller-budget-fields").replaceChildren(...model.globals.filter(f => Object.hasOwn(businessFields, f.key)).map(f => bindField({ ...f, ...businessFields[f.key] }, `global.${f.key}`, state.global[f.key], "controller-")));
+  }
+  function selectEnvironment(key) {
+    selected = key;
+    document.querySelectorAll("[data-env]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.env === key)));
+    renderInputs(); refresh(false);
+  }
+  function setView(next) {
+    view = next; document.body.dataset.view = view;
+    document.querySelectorAll("button[data-view]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.view === view)));
+    $("csv").textContent = view === "controller" ? "Download budget CSV" : "Download cost CSV";
+    refresh(false);
+  }
+  function cells(row, values, numericFrom = Infinity) {
+    values.forEach((value, i) => row.append(node("td", String(value), i >= numericFrom ? "num" : undefined)));
+    return row;
+  }
+  function showControllerResults(budget) {
+    const area = model.businessAreas[selected].label, e = state.environments[selected], r = budget.results[selected];
+    const summary = model.controllerSummary(state, selected);
+    const included = Object.keys(model.businessAreas).filter(key => state.environments[key].included);
+    const scope = e.included ? area : `${area} (not in total)`;
+    $("controller-budget-scope").textContent = included.length ? `Total covers: ${included.map(key => model.businessAreas[key].label).join(", ")}. All amounts are USD.` : "No areas are ticked. The combined budget is zero because nothing is included, not because the solution is free.";
+    $("controller-monthly").textContent = money(budget.allocated);
+    $("controller-annual").textContent = money(budget.annual);
+    $("controller-buffer-note").textContent = `12 similar months + ${num(state.global.contingencyPct)}% reserve. One-off setup is excluded.`;
+    $("controller-per-person-label").textContent = `${scope}: monthly cost per person`;
+    $("controller-per-person").textContent = summary.perPerson === null ? "N/A" : money(summary.perPerson);
+    $("controller-questions-label").textContent = `${scope}: questions per month`;
+    $("controller-questions").textContent = num(r.initial);
+    $("controller-volume").textContent = `${num(e.users)} people x ${num(e.days)} days x ${num(e.sessions)} conversations x ${num(e.questions)} questions x ${num(state.global.demandFactor)} workload multiplier = ${num(r.initial)} new questions per month for ${area}. Follow-ups and retries are added separately by the shared calculation.`;
+    $("controller-funding").textContent = `Estimated additional monthly spend: ${money(budget.incremental)}. The total above also includes any share of services already funded elsewhere; funding and allocations need confirmation from IT and finance.`;
+    $("controller-comparison").querySelector("tbody").replaceChildren(...Object.entries(budget.results).map(([key, result]) =>
+      cells(node("tr"), [model.businessAreas[key].label, state.environments[key].included ? "Yes" : "No", num(state.environments[key].users), money(result.allocated)], 2)));
+    $("controller-breakdown-title").textContent = `What makes up the cost: ${scope}`;
+    $("controller-cost-explainer").textContent = `${money(summary.beforeQuestions)} per month is budgeted even with no user questions, plus ${money(summary.addedUsage)} from the entered usage. The starting amount includes service availability, stored data and planned maintenance; it is not a separate fee.`;
+    const costs = summary.costs.filter(cost => cost.amount > 0);
+    $("controller-costs").querySelector("tbody").replaceChildren(...costs.map(cost => cells(node("tr"), [cost.label, money(cost.amount)], 1)));
+    $("controller-costs").querySelector("tfoot").replaceChildren(cells(node("tr"), [scope + " total", money(r.allocated)], 1));
+    $("controller-sensitivity").querySelector("tbody").replaceChildren(...[["Quieter (half)", .5], ["Expected", 1], ["Busier (double)", 2]].map(([label, factor]) => {
+      const sample = model.calculate(state, selected, factor);
+      return cells(node("tr"), [label, num(sample.initial), money(sample.allocated)], 1);
+    }));
+    const warningAreas = new Map();
+    new Set([...included, selected]).forEach(key => budget.results[key].businessWarnings.forEach(warning => {
+      if (!warningAreas.has(warning)) warningAreas.set(warning, []);
+      warningAreas.get(warning).push(model.businessAreas[key].label);
+    }));
+    $("controller-warnings").replaceChildren(...[...warningAreas].map(([warning, areas]) => node("li", `${areas.join(", ")}: ${warning}`)));
+  }
+  function showResults(budget) {
+    showControllerResults(budget);
+    $("monthly").textContent = money(budget.allocated);
+    $("incremental").textContent = money(budget.incremental);
+    $("annual").textContent = money(budget.annual);
+    $("questions").textContent = num(budget.initial);
+    const comparison = $("comparison").querySelector("tbody"); comparison.replaceChildren();
+    Object.entries(budget.results).forEach(([key, r]) => {
+      const e = state.environments[key];
+      comparison.append(cells(node("tr"), [model.environments[key] + (key === "development" ? "" : " (assumed)") + (e.included ? "" : " / excluded"),
+        `${e.implementations} implementation(s), ${e.hostMode === "Per-session sandboxes" ? "session hosting" : e.replicas + " continuous instance(s) each"}; Search ${e.searchTier} ${e.searchReplicas}x${e.searchPartitions}; F${e.fabricCU}`,
+        num(r.initial), money(r.allocated), money(r.incremental), r.perQuestion === null ? "N/A - no demand" : money(r.perQuestion)], 2));
+    });
+    const r = budget.results[selected];
+    $("detail-title").textContent = `${model.environments[selected]} breakdown`;
+    $("detail-badge").textContent = `${num(state.global.demandFactor)}x demand / ${state.environments[selected].included ? "included" : "excluded from total"}`;
+    $("warnings").replaceChildren(node("strong", "Planning checks"));
+    const warnings = node("ul"); r.warnings.forEach(w => warnings.append(node("li", w))); $("warnings").append(warnings);
+    const categories = new Map();
+    r.lines.forEach(line => categories.set(line.category, (categories.get(line.category) || 0) + line.allocated));
+    const entries = [...categories.entries()].filter(([, value]) => value > 0).sort((a, b) => b[1] - a[1]);
+    const maximum = Math.max(1, ...entries.map(([, value]) => value));
+    $("bars").replaceChildren();
+    entries.forEach(([name, value]) => {
+      const row = node("div", undefined, "bar-row"), track = node("div", undefined, "bar-track"), bar = node("div", undefined, "bar");
+      bar.style.width = `${value / maximum * 100}%`; track.append(bar); row.append(node("span", name), track, node("strong", money(value))); $("bars").append(row);
+    });
+    $("cost-split").textContent = `${money(r.fixed)} capacity / fixed allowances + ${money(r.variable)} usage, storage and operations. Amounts include any illustrative rates.`;
+    const metrics = [
+      ["Handled turns incl. follow-ups / retries", num(r.turns)], ["Outer model calls", num(r.routed)],
+      ["Statements / KPIpedia / explorations", `${num(r.statements)} / ${num(r.definitions)} / ${num(r.explorations)}`],
+      ["Fuzzy Search / reranker calls", `${num(r.fuzzy)} / ${num(r.reranks)}`],
+      ["Direct outer input / output tokens", `${num(r.input)} / ${num(r.output)}`],
+      ["Embeddings: queries / publications", `${num(r.queryEmbeddingTokens)} / ${num(r.publicationTokens)} tokens`],
+      ["Billable hosted instance-hours", num(r.hostInstanceHours)], ["Log ingestion before allowance", `${num(r.logGB)} GB`],
+      ["Data Agent inference / exploration", `${num(r.fabricInferencePerCall)} CU-seconds, plus source work`],
+      ["Fabric work (unmeasured assumptions)", `${num(r.fabricSeconds)} CU-seconds`],
+      ["Fabric average use incl. background", r.fabricLoad === null ? "N/A - paused" : `${num(r.fabricLoad)}%`],
+      ["Raw retained vectors (excludes text/HNSW)", `${num(r.vectorMB)} MB`]
+    ];
+    $("consumption").querySelector("tbody").replaceChildren(...metrics.map(pair => cells(node("tr"), pair, 1)));
+    const tbody = $("breakdown").querySelector("tbody"); tbody.replaceChildren();
+    r.lines.forEach(line => {
+      const tr = node("tr");
+      [line.name, line.quantity, money(line.allocated), money(line.incremental), line.evidence].forEach((text, i) => tr.append(node("td", text, i === 2 || i === 3 ? "num" : undefined)));
+      tbody.append(tr);
+    });
+    $("breakdown").querySelector("tfoot").replaceChildren(cells(node("tr"), ["Monthly total", "After eligible Azure discount", money(r.allocated), money(r.incremental), "Before contingency"]));
+    $("initial-cost").textContent = `One-time first catalogue embedding pass: ${money(r.initialEmbeddingCost)} (excluded from monthly/annual totals). This is NOT full setup cost; engineering and initial Fabric processing are additional. Full Fabric capacity before allocation/discount: ${money(state.environments[selected].fabricCU * state.environments[selected].fabricHours * state.prices.fabricCU)}/month.`;
+    $("sensitivity-table").querySelector("tbody").replaceChildren(...[["Low", .5], ["Base", 1], ["High", 2]].map(([label, factor]) => {
+      const sample = model.calculate(state, selected, factor);
+      return cells(node("tr"), [label + ` (${factor}x)`, num(sample.initial), money(sample.allocated), sample.fabricLoad === null ? "N/A" : `${num(sample.fabricLoad)}%`], 1);
+    }));
+  }
+  function refresh(persist = true, successMessage = "Valid assumptions saved in this browser. Export JSON for a portable copy.") {
+    const errors = model.validate(state);
+    document.querySelectorAll("[data-path]").forEach(input => {
+      input.setAttribute("aria-invalid", String(errors.some(e => e.path === input.dataset.path || e.relatedPaths?.includes(input.dataset.path))));
+      if (input === document.activeElement) return;
+      const value = input.dataset.path.split(".").reduce((obj, key) => obj[key], state);
+      if (input.type === "checkbox") input.checked = value === 1;
+      else input.value = value === null ? "" : value;
+    });
+    $("errors").hidden = errors.length === 0;
+    $("errors").replaceChildren();
+    ["results", "environment-results", "controller-results", "controller-volume"].forEach(id => { $(id).hidden = errors.length !== 0; });
+    ["export", "csv", "print"].forEach(id => { $(id).disabled = errors.length !== 0; });
+    Object.entries(model.rates).forEach(([key, r]) => {
+      const el = $(`rate-status-${key}`);
+      el.textContent = state.prices[key] !== r.value ? "User override" : r.status;
+    });
+    const factor = state.global.demandFactor;
+    $("sensitivity").value = [1, .5, 2].includes(factor) ? String(factor) : "";
+    if (errors.length) {
+      $("errors").append(node("strong", "Results withheld - correct the input errors first."));
+      const ul = node("ul");
+      errors.forEach(error => {
+        const parts = error.path.split("."), field = businessFields[parts.at(-1)];
+        const area = parts[0] === "environments" ? model.businessAreas[parts[1]].label : "Budget settings";
+        const text = field ? `${area}: ${field.label} - enter a valid number within the displayed field limits.` : `${area}: an IT assumption needs correction. Open Detailed IT view to see the exact setting.`;
+        ul.append(node("li", view === "controller" ? text : error.message));
+      });
+      $("errors").append(ul);
+      setStatus("Invalid edits have not been saved. Last valid saved scenario is retained.");
+      return;
+    }
+    showResults(model.combined(state));
+    if (!persist) return;
+    try { localStorage.setItem(storageKey, JSON.stringify(state)); setStatus(successMessage); }
+    catch (error) { setStatus(`Browser storage unavailable: ${error.message}. Use Export to keep your assumptions.`); }
+  }
+  function download(name, content, type) {
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const a = node("a"); a.href = url; a.download = name; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  document.querySelectorAll("[data-env]").forEach(button => button.addEventListener("click", () => selectEnvironment(button.dataset.env)));
+  document.querySelectorAll("button[data-view]").forEach(button => button.addEventListener("click", () => setView(button.dataset.view)));
+  $("sensitivity").addEventListener("change", event => { state.global.demandFactor = Number(event.target.value); renderInputs(); refresh(); });
+  $("export").addEventListener("click", () => {
+    download("zavafinance-cost-assumptions.json", JSON.stringify(state, null, 2), "application/json");
+    setStatus("Exported all environment assumptions and unit prices. Keep this HTML with the JSON for rate provenance.");
+  });
+  $("csv").addEventListener("click", () => {
+    const qualification = "Indicative USD estimate; prices may vary under your Microsoft agreement. Copilot Studio / KPIpedia pricing excluded. Unentered costs excluded, not free. Testing/daily-use services and sizes are assumptions.";
+    let rows;
+    if (view === "controller") {
+      rows = [["Area", "Included in total", "What you are paying for", "Estimated USD/month", "Rate snapshot", "Pricing qualification"]];
+      Object.keys(model.businessAreas).forEach(key => model.controllerSummary(state, key).costs.forEach(cost => rows.push([model.businessAreas[key].label, state.environments[key].included ? "Yes" : "No", cost.label, cost.amount.toFixed(6), model.SNAPSHOT, qualification])));
+    } else {
+      rows = [["Environment", "Included in combined total", "Service", "Quantity / basis", "Allocated USD/month", "Incremental USD/month", "Evidence", "Rate snapshot", "Pricing qualification"]];
+      Object.keys(model.environments).forEach(key => model.calculate(state, key).lines.forEach(line => rows.push([model.environments[key], state.environments[key].included ? "Yes" : "No", line.name, line.quantity, line.allocated.toFixed(6), line.incremental.toFixed(6), line.evidence, model.SNAPSHOT, qualification])));
+    }
+    const csv = rows.map(row => row.map(cell => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\r\n");
+    download("zavafinance-monthly-costs-usd.csv", csv, "text/csv;charset=utf-8");
+    setStatus(view === "controller" ? "Exported plain-language monthly estimates for every area. Only rows marked Yes belong in the combined budget." : "Exported service-level monthly USD estimates for all environments, with inclusion and evidence labels.");
+  });
+  $("import").addEventListener("click", () => $("import-file").click());
+  $("import-file").addEventListener("change", async event => {
+    const file = event.target.files[0]; if (!file) return;
+    try {
+      if (file.size > 256000) throw new Error("Scenario file exceeds the 256 KB limit.");
+      const next = validateImport(JSON.parse(await file.text()));
+      state = next; renderInputs(); refresh(true, "Imported and validated scenario; review prices against the source register.");
+    } catch (error) { setStatus(`Import rejected; current assumptions unchanged. ${error.message}`); }
+    finally { event.target.value = ""; }
+  });
+  $("reset").addEventListener("click", () => {
+    if (!confirm("Reset all environments and unit prices? Export first to keep your current assumptions.")) return;
+    state = model.defaults(); renderInputs(); refresh(true, "All assumptions and rates reset to the documented baseline.");
+  });
+  $("theme").addEventListener("click", () => document.documentElement.setAttribute("data-theme", document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
+  $("print").addEventListener("click", () => {
+    const closed = [...document.querySelectorAll("details:not([open])")];
+    closed.forEach(detail => { detail.open = true; });
+    window.addEventListener("afterprint", () => closed.forEach(detail => { detail.open = false; }), { once: true });
+    window.print();
+  });
+  selectEnvironment(selected);
+})();
+</script>
+</body>
+</html>
