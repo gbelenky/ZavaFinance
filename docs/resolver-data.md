@@ -10,6 +10,12 @@ The [seeding script pack](zavafinance-fabric-seeding.zip) distributes these exis
 publication scripts with a SHA-256 manifest; it is not the original finance dataset or a
 standalone application release.
 
+**Moving an existing estate?** Follow the [Fabric estate migration runbook](fabric-estate-migration.md)
+instead of reseeding. It copies actual Tables/Files, retained Delta history and supported
+Notebook/DataAgent definitions into isolated targets. The seeding pack is not that migration
+toolkit or a backup of the original finance dataset. A real rehearsal and customer acceptance
+remain required; R1-R4 are not closed by supplying scripts.
+
 **Base-data prerequisite:** all nine original Delta tables must already exist:
 `dim_region`, `dim_department`, `dim_kpi`, `dim_date`, `dim_account`,
 `fact_finance_monthly`, `fact_kpi_monthly`, `fact_headcount_monthly` and
@@ -132,6 +138,33 @@ For example, version `2026-09-16-v1` uses `zava-resolver-2026-09-16-v1`.
 Each stage/activation retains its own version-specific notebook in the Fabric workspace.
 A timeout reports the operation URL: inspect the existing job rather than starting another
 blindly. The scripts never print tokens or write them to a notebook.
+
+## Publication after an estate import
+
+**Complete full-data and definition migration validation before Search publication or release
+activation.** That pre-activation baseline includes the imported `resolver_release`; activation
+changes it and must not be used to make migration validation pass. Data validation intentionally
+excludes source-to-target SQL principals/permissions/policies equality. Workspace-role inventory
+is not a complete item ACL or OneLake security backup: perform independent target security
+mapping, label review and real-user access tests.
+
+Keep imported catalogue versions, curated rows and retained history intact. Rebuild the
+**out-of-Fabric** Azure AI Search projection with `Publish-ResolverSearch.ps1` against the
+target SQL endpoint and the approved imported version. Do not run the stage generator to
+replace actual imported content with demo metadata. Review its Zava-specific assumptions
+and retrieval probe if they reject a curated catalogue; demo counts are not universal tests.
+
+The copied `resolver_release` still contains source bindings. It does not authorize target
+traffic. Only after target Search validation and real allowed/denied-user permission checks
+may the release owner bind/activate the target release. **The current
+`Publish-ResolverData.ps1 -ActivateRelease` revalidates generated rows and may reject a
+curated imported catalogue.** Use a reviewed version-specific publication approach that
+preserves the imported immutable content; do not bypass that validation, regenerate the
+catalogue or force a pointer change merely to make activation pass.
+
+Definition import does not publish the Data Agent, grant target access or switch application
+settings. Those manual gates, rollback and the explicit `cutoverApproved=false` migration
+report are described in the [migration runbook](fabric-estate-migration.md#7-rebuild-out-of-fabric-services-and-release-manually).
 
 ## Authorization and operations
 

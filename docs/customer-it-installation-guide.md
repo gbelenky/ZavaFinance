@@ -2,18 +2,18 @@
 
 ## 1. Purpose and installation boundary
 
-> **Document status: DRAFT - IT readiness review.** Edition 1.1, 21 September 2026. Share this guide for architecture, access, networking, licensing and responsibility review. It is **not a complete deployment handover or installation sign-off**. The outstanding delivery dependencies below must be closed for the selected implementation before a deployment-ready handover.
+> **Document status: DRAFT - IT readiness review.** Edition 1.3, 5 October 2026. Share this guide for architecture, access, networking, licensing and responsibility review. It is **not a complete deployment handover or installation sign-off**. The outstanding delivery dependencies below must be closed for the selected implementation before a deployment-ready handover.
 
-**Audience:** customer Azure platform, identity, network, Microsoft 365, Fabric, Power Platform and application-release administrators. **Review date:** 21 September 2026. This guide applies to either the .NET or Python implementation; installing both is optional.
+**Audience:** customer Azure platform, identity, network, Microsoft 365, Fabric, Power Platform and application-release administrators. **Review date:** 5 October 2026. This guide applies to either the .NET or Python implementation; installing both is optional.
 
 ### Recommended handover closure plan
 
-The following items are **not closed in the current customer handover**. A prerequisite listed later in this guide is not evidence that its artifact has been supplied or validated. These recommendations do not claim to export an agent, supply the base dataset or fix dependency delivery.
+The following items are **not closed in the current customer handover**. A prerequisite listed later in this guide is not evidence that its artifact has been supplied or validated. Supplying migration scripts does not mean that the actual working agent or finance dataset has been exported, reconciled and accepted, or that dependency delivery has been fixed.
 
 | Outstanding delivery dependency | Required closure evidence | Accountable owner |
 | --- | --- | --- |
 | **R1. Fabric Data Agent configuration** | Reviewed export/readback of the working agent, translated into customer-specific setup: actual instructions/prompts, selected sources/tables, approved example questions/queries and expected results, runtime settings, publication/MCP binding and user permissions. A generic replacement prompt is not equivalent. | Fabric/Data Agent owner, with finance review |
-| **R2. Base finance dataset and full schemas** | Approved synthetic data for all nine source tables, complete column types and data contracts, loading procedure, row counts/period coverage and independently reconciled totals. The supplied resolver scripts do not create these original facts. | Finance/data owner |
+| **R2. Base finance dataset and full schemas** | Approved data for all nine source tables (synthetic/non-production for this baseline), complete column types and data contracts, loading or validated migration procedure, row counts/period coverage and independently reconciled totals. Resolver scripts do not create these original facts; migration tooling is not evidence of an actual delivered data release. | Finance/data owner |
 | **R3. Reproducible .NET dependency delivery** | Approved feed or distributable dependency pack, pinned versions, provenance/redistribution approval, and successful restore/build on a clean workstation. The host currently relies on a source-built Activity compatibility package and local artifact feed. **Applies only when .NET is selected.** | Application release owner and software/package approver |
 | **R4. KPIpedia delivery or validated reuse** | Importable Power Platform solution with knowledge, environment variables, connection references and access requirements, **or** an approved existing compatible agent with a verified delegated invocation. An existing generic KPI service is not automatically compatible with this release. | Power Platform/KPI owner and application release owner |
 
@@ -23,7 +23,7 @@ Customer-specific licensing/capacity, identity consent/RBAC, network and Preview
 
 **Recommended operations addition:** deliver tested log queries/dashboards, agreed alert thresholds and owners, and a rollback/credential-rotation exercise record. Section 16 describes this recommended operations pack; its inclusion here does not mean it has been implemented.
 
-The customer creates and owns the resources in its development environment. Resource provisioning, identity and channel configuration are portal-first and do **not** depend on supplier provisioning scripts. **Data seeding is an explicit exception:** the reviewed resolver publication and validation scripts are supplied because the application requires specific table structures. Section 6 explains exactly what they create, their prerequisites and how to run them. Microsoft command-line deployment tools are used where native application code deployment requires them. This is **not a claim that every step is available in a portal**.
+The customer creates and owns the resources in its development environment. Resource provisioning, identity and channel configuration are portal-first and do **not** depend on supplier provisioning scripts. **Data operations are an explicit exception:** the reviewed resolver publication/validation scripts install required metadata; the separate estate-migration toolkit preserves an existing supported Fabric estate. Section 6 distinguishes these paths. Microsoft command-line tools are used for native code deployment and the controlled Fabric/OneLake transfer. This is **not a claim that every step is available in a portal**.
 
 This guide is a draft installation and acceptance specification, not a software distribution or a release approval. The application owner must deliver the artifacts in Section 3 before installation. Empty Azure resources alone cannot supply the application, finance data model, KPI knowledge or resolver index.
 
@@ -49,7 +49,7 @@ For each selected implementation, create a distinct hosted agent, Bot registrati
 
 1. **Choose one implementation first:** .NET or Python. The user-facing capabilities are the same. Install both only when the application owner explicitly needs both.
 2. **Name the owners below.** An Azure engineer cannot normally approve tenant consent, publish a Teams app or grant Fabric data access alone.
-3. **Collect the delivery pack before creating resources.** In particular, obtain the approved base finance dataset. The included seeding scripts create resolver metadata and its Search projection; they do **not** populate an empty lakehouse with original financial facts.
+3. **Collect the delivery pack before creating resources.** Obtain the approved base finance dataset or a separately rehearsed migration of the actual source estate. Seeding creates resolver metadata and its Search projection, not original finance facts. Migration copies existing data/history; it does not supply a missing source dataset or a working-agent acceptance record.
 4. **Complete the dependency-ordered checklist below.** Record each resource's actual identifiers in the worksheet. Do not copy the example resource names, tenant IDs or regions from a demonstration environment.
 5. **Use the detailed procedure referenced by each row.** Do not proceed past a failed completion check. Ask the named owner to fix it instead of adding broad permissions.
 6. **Finish with two-user acceptance.** A green deployment indicator or an administrator receiving an answer does not prove that ordinary users have the correct access or that the answer is financially correct.
@@ -140,7 +140,7 @@ Work top to bottom. Several owners may prepare independent prerequisites in para
 | --- | --- | --- |
 | **1. Release and policy owners** | Choose variant; receive approved source/dependencies, data and seeding pack. Review licensing, Preview/secret policy and networking. Sections 2-4. | Required artifacts exist and exceptions are approved. Missing base finance data blocks C6. |
 | **2. Azure platform owner** | Create/select C1-C4; deploy models, enable Search semantic ranker and approve network paths. Section 5. | Resource IDs/endpoints, quotas, region and connectivity are recorded. |
-| **3. Fabric/data owner** | Prepare C5. Load the approved nine-table finance baseline, then run C6 **stage > validate > index > activate**. Section 6. | SQL sees the tables; all checks pass; one active release matches a verified Search index. |
+| **3. Fabric/data owner** | Prepare C5. Either load the approved baseline and run C6 **stage > validate > index > activate**, or migrate the actual estate into isolated targets and follow the separate publication gates. Section 6. | SQL/data checks pass; user access is verified; one approved active release matches target Search. Do not regenerate an imported catalogue. |
 | **4. Fabric and KPI owners** | Publish/share C7 and C8; validate each with a normal employee identity. Sections 6-7. | Real published endpoints exist and the intended user can access each dependency. |
 | **5. Identity and access owners** | Configure C9, scopes/redirect/consent, assignments and approved credentials. Preassign human setup access; prepare runtime grants. Sections 8-9. | Finance identity values and consent are correct; the credential policy can be met. |
 | **6. Application release owner** | Configure and deploy C10, provisioned C13 feature included. Identify runtime MI and apply its approved C3/C4 roles. Sections 9-11. | Agent is healthy; real runtime model/Search/state tests pass; no unexpected broad access. |
@@ -203,7 +203,7 @@ Track the outstanding R1-R4 dependencies from Section 1 against this checklist. 
 1. **Application release workspace:** the chosen runtime payload, a reviewed native-code deployment manifest and public-tool instructions. Its resource/channel deployment must contain no supplier provisioning hooks or helper-script dependencies, customer credentials or demonstration resource IDs. The separately reviewed data-seeding scripts below are the explicit exception.
 2. **.NET release workspace:** the real host project, referenced source projects, dependency configuration and approved compatibility-package feed for the native `dotnet_10` runtime. The documented azd bundled flow publishes this project on the release workstation/runner; a DLL or ZIP alone is not sufficient. Supply reproducible feed access/artifacts and record dependency provenance and redistribution approval. IT must not need an undocumented private developer build machine.
 3. **Python payload:** source/package layout for native `python_3_13`, pinned requirements and the approved remote-build dependency sources. The managed Linux SQL/native-library compatibility must have been tested.
-4. **Finance data and seeding release:** approved base data for the nine source tables, exact source schemas and expected totals, permission design, and **`zavafinance-fabric-seeding.zip`** with the existing resolver scripts and file-hash manifest. The scripts generate resolver tables, not the original finance facts. Include the approved SQL-client dependency folder or the source/feed access needed to build it. Section 6 defines the dependency contract and run order.
+4. **Finance data and seeding/migration release:** approved base data for the nine source tables, exact schemas/totals and permission design. The **`zavafinance-fabric-seeding.zip`** scripts generate resolver metadata, not original facts. For an existing-estate migration, additionally obtain the separately reviewed migration toolkit and actual approved export package, independent manifest approval, mapping and rehearsal evidence. The seeding ZIP is not a migration distribution or finance backup. Include the approved SQL-client dependency folder or source/feed access needed to build it. Section 6 defines both paths.
 5. **Search release:** the reviewed `Publish-ResolverSearch.ps1` in that pack creates the exact vector/semantic schema and generates/validates the corresponding catalogue vectors. Alternatively, supply an equivalent complete index definition and document/vector payloads through the customer's approved deployment process. Record the version, dimensions and checksums either way.
 6. **KPIpedia delivery:** a customer-importable Power Platform solution or an approved existing agent, with environment variables, connection-reference requirements and knowledge/data entitlements. A display name alone is not an importable agent.
 7. **Fabric Data Agent specification:** allowed sources/tables, instructions, approved examples, runtime choice and expected finance permissions.
@@ -330,9 +330,116 @@ Create or select the approved Log Analytics workspace, Application Insights reso
 1. Create or select an active Fabric capacity and development workspace. The documented Data Agent feature minimum includes paid **F2 or higher**, or an existing eligible **P1 or higher with Fabric enabled**. This is not a performance-sizing recommendation.
 2. Assign the workspace to the approved capacity. Review tenant settings for Copilot/AI and applicable capacity settings with the Fabric administrator, scoped to the pilot where supported.
 3. Keep the Data Agent and source-workspace capacities in the same supported region. Review cross-geography processing **and storage** approvals when applicable; these do not remove same-region source constraints.
-4. Create/select the finance lakehouse and load the approved **base finance data** as described below. Then run the supplied resolver seeding scripts. These are two different operations. This application does not dynamically adapt itself to an arbitrary finance database.
+4. Choose the **fresh-baseline seeding** or **existing-estate migration** path below. For seeding, load approved base finance data first, then generate resolver metadata. For migration, precreate empty, schema-compatible targets and preserve the actual source data/catalogue/history instead. This application does not dynamically adapt itself to an arbitrary finance database.
 5. Obtain the SQL analytics hostname and database from Fabric. Test TLS/SQL connectivity from the intended runtime boundary, not only the workstation.
 6. Grant pilot users only their authorized source/SQL access, including the permitted resolver metadata. Do not assign all users workspace administrator to make tests pass.
+
+### Migrate an existing Fabric estate instead of reseeding
+
+Use this path only with an approved existing source estate. The detailed procedure and configuration examples are in the companion **`docs\fabric-estate-migration.md`** [migration runbook](https://github.com/gbelenky/ZavaFinance/blob/main/docs/fabric-estate-migration.md). Deliver that file and the reviewed scripts with this edition; a web link is not proof that the customer's exact release pack has been received.
+
+**Fabric import addendum, 1 October 2026:** recipients of an existing export should use the [Fabric configuration and data import guide](fabric-import-guide.md), including its handover checklist, target settings, complete reference map and validation procedure. The reference source export and package verification succeeded with Fabric CLI 1.7.0 and AzCopy 10.32.7, capturing 13 tables, two notebooks and a Data Agent definition. Target import/readback and finance/security acceptance have not been performed. A full customer rehearsal remains mandatory; **R1-R4 remain open**. This addendum is included in the edition 1.3 PDF.
+
+| Migration scope | Required control |
+| --- | --- |
+| Selected workspaces | Inventory **all items**, not just a chosen Lakehouse. Every source Lakehouse requires SQL hostname/database configuration. Unsupported types block full export, rather than silently produce a partial estate. |
+| Lakehouse data/history | Copy complete physical **Tables** and **Files**, including **empty directories**, retained Delta logs/checkpoints and historical data files. Never reseed from current rows. Already vacuumed/deleted history is unavailable. |
+| Notebook / DataAgent | Preserve API-returned definition parts, including any returned notebook cell outputs, with reviewed rebinding. Data Agent is **GA**; definition/source-control migration has a separate **Preview** gate, requiring `-AllowPreviewDataAgent`. No automatic execution or publication. |
+| SQLEndpoint | Generated by its owning Lakehouse. Do not independently restore or map it as an item. Custom SQL objects need a reviewed migration and block full export. |
+| Folders / shortcuts / schedules | The **Preview List Folders API** inventories workspace folders; **any folder, including an empty one**, blocks full export. Shortcuts, Notebook schedules and Lakehouse **`TableMaintenance` schedules** also block export. Physical OneLake directories are a different, preserved scope. |
+| Access / cutover | Fabric inventory covers **workspace roles only**, with SQL security metadata captured separately: **not a complete item ACL/OneLake security backup**. Review these controls and labels independently. Never automatically grant, publish, activate or switch traffic. |
+
+**Preserve all 13 actual required Zava Delta tables:** the nine base tables below plus `resolver_catalog`, `resolver_scope`, `resolver_calendar` and `resolver_release`. Keep all imported versions and retained history. Use `requireZavaContract: true` for Zava in both configurations. The accepted migration baseline requires nonempty tables, including an existing release; demonstration row counts/amounts are not universal acceptance criteria.
+
+Precreate one-to-one target workspaces and **empty Lakehouses in the same schema mode and default schema**. **`requireZavaContract: true` rejects schema-enabled source or target Lakehouses**: the current Zava publisher expects direct `Tables/<table_name>`, not `Tables/dbo/<table_name>`. Do not weaken that contract. Physical **`_delta_log` table names must equal the SQL-visible table set**; missing synchronization or visibility blocks export.
+
+For **both source and target**, the wrapper validates the SQL hostname against the typed Lakehouse API's provisioned endpoint properties; the database must be the actual **Lakehouse display name or SQL endpoint ID**. Never use a source workspace/Lakehouse as a destination. Map every supported item exactly once. Notebook/DataAgent entries specify `sourceId` and new `displayName`, **not `targetId`**; public API creation returns IDs recorded in the receipt, not native import/upsert.
+
+Obtain explicit manual **content/dependency approval for cross-workspace and external source references**. Only known exported IDs, SQL endpoint IDs/hostnames and explicit bindings are mapped; this is **not a universal dependency parser**. Review opaque/dynamic references and target access. Never use generic-name find/replace or treat successful definition comparison as complete dependency approval.
+
+#### Migration prerequisites and data custody
+
+Use PowerShell 7.6, the existing .NET 10/public SqlClient dependency folder and `Resolver-Sql.ps1`, Azure CLI, the public **Microsoft Fabric CLI (`ms-fabric-cli` / `fab`)** and **AzCopy**. Follow their official installation references in Section 20; record the actual selected versions and command compatibility during rehearsal. The seeding ZIP does not include this migration toolkit. Migration requires complete source inventory/OneLake visibility, unfiltered SQL `SELECT`, database `VIEW DEFINITION`, allowed HTTPS/SQL connectivity and approved target write access.
+
+**CLI/SDK coverage decision:** all ID-addressed metadata and definition operations use public **`fab api`**, not handwritten HTTP transport. Native export strips Notebook outputs, native import is name-based/upserts, and CLI 1.7 lacks native DataAgent transfer. The wrapper handles documented response envelopes, pagination, HTTP 429 and long-running operations explicitly. CLI **v1.7.0 is source-reviewed, not live-tested**; the adapter **accepts only v1.7.0 and rejects other versions** pending a reviewed/tested contract update. CLI GA does not make every called feature GA. The companion runbook lists all four offline contract-test commands; passing them is not a live rehearsal.
+
+Original opaque **`definition.parts`** are stored as **`InlineBase64` in `definition.json`**. Text is decoded for secret detection and reviewed rebinding; binary parts fail closed pending type-specific support. For `.json`/`.ipynb` parts, canonical normalization exposes Unicode-escaped IDs without numeric precision loss; remapped JSON is validated before the first target write. This does not replace manual dependency approval. Native Notebook output stripping is not applied. Keep the source package unchanged; target bindings and new item identities are separate.
+
+**Authentication:** use separate `fab auth login --tenant ...` and `az login --tenant ...` user logins. The wrapper checks **both** contexts; each CLI handles native token refresh. There is **no Azure CLI authentication bridge**. Never log tokens; an authentication failure does not authorize unsafe partial resume.
+
+The package, inventories, definitions, receipts, logs and full readback can contain financial data and sensitive metadata. Store them on an **encrypted, customer-approved path outside any Git repository**, with restricted access and sufficient capacity for both copies and retained history. The toolkit rejects packages, receipts and readbacks inside **any** repository; **receipts and readbacks must also be outside the immutable package**. Approve definition content and dependencies before export. Keep an independently approved manifest SHA-256 in the customer's trusted release record; a digest supplied beside an untrusted package detects corruption but does not establish authenticity.
+
+#### Export, import and validate
+
+The blocks below run from the reviewed release root. Supply `$sourceConfig`, `$inventoryPath`, `$packagePath`, `$targetMap`, `$receiptPath`, `$readbackPath` and `$sqlClientDirectory` from the controlled record. Use new output/readback paths outside every Git repository, with receipts/readbacks separate from the package. Examples assume approved **Preview DataAgent definition migration**.
+
+1. Sign in to the source tenant separately with Fabric CLI and Azure CLI, checking both results. Run online inventory and review every blocker:
+
+```powershell
+$sourceTenantId = (Get-Content -LiteralPath $sourceConfig -Raw | ConvertFrom-Json).tenantId
+fab auth login --tenant $sourceTenantId
+az login --tenant $sourceTenantId
+
+.\scripts\Export-FabricEstate.ps1 `
+  -SourceConfig $sourceConfig -OutputPath $inventoryPath `
+  -InventoryOnly -AllowPreviewDataAgent
+```
+
+2. Freeze ingestion, jobs, refreshes, schedules, definition/security changes and **VACUUM**, drain in-flight work, and wait for SQL synchronization. Hold the freeze through export and final checks. The switches attest these controls; they do not enforce them:
+
+```powershell
+.\scripts\Export-FabricEstate.ps1 `
+  -SourceConfig $sourceConfig -OutputPath $packagePath `
+  -SourceQuiesced -DefinitionContentApproved -AllowPreviewDataAgent `
+  -SqlClientDirectory $sqlClientDirectory
+```
+
+Before/after metadata, SQL and OneLake listing checks detect changes but are **not an atomic estate snapshot guarantee**. Source SQL checks use the internal **`-CompareSecurity`** option for principals/permissions/policies; this is not a public wrapper switch or a complete security audit. An incomplete or blocked export is not importable. A source that resumes writes diverges from this package; no incremental catch-up is provided.
+
+3. Obtain `$approvedManifestSha256` through the independent approval channel; do not derive a replacement hash merely to make validation pass. Offline package verification:
+
+```powershell
+.\scripts\Test-FabricEstate.ps1 `
+  -PackagePath $packagePath -ManifestSha256 $approvedManifestSha256 `
+  -PackageOnly
+```
+
+4. For a tenant change, complete the local download **before** changing to target-tenant tool logins. Upload from the staged package; **no direct cross-tenant Fabric-to-Fabric AzCopy**. Verify every tool's tenant context. Import defaults to online, read-only target preflight:
+
+```powershell
+$targetTenantId = (Get-Content -LiteralPath $targetMap -Raw | ConvertFrom-Json).tenantId
+fab auth login --tenant $targetTenantId
+az login --tenant $targetTenantId
+
+.\scripts\Import-FabricEstate.ps1 `
+  -PackagePath $packagePath -ManifestSha256 $approvedManifestSha256 `
+  -TargetMap $targetMap -ReceiptPath $receiptPath -AllowPreviewDataAgent
+```
+
+5. After reviewing the plan and proving targets are isolated, repeat with `-Apply -TargetIsolated`. No script grants permissions or switches application traffic.
+6. An interrupted import fails closed: inspect the remote partial operation first, then use new empty targets/map/receipt for another attempt. Do not reset receipts, overwrite tables or resume blindly. Only a **completed** import is idempotently repeatable with the unchanged package/map/receipt.
+7. Wait for target SQL synchronization, then perform full readback:
+
+```powershell
+.\scripts\Test-FabricEstate.ps1 `
+  -PackagePath $packagePath -ManifestSha256 $approvedManifestSha256 `
+  -TargetMap $targetMap -ReceiptPath $receiptPath `
+  -ReadbackPath $readbackPath -SqlClientDirectory $sqlClientDirectory
+```
+
+**AzCopy completion caveat:** `--overwrite=false` can skip the existing destination root's **folder properties** and report `CompletedWithSkipped` despite zero failed transfers or skipped files. Allow exactly one identified **ROOT directory-property skip**, only after verifying the destination has **no descendants**, then verify destination inventory and full readback. Skipped files, multiple/unexpected directories or ambiguous evidence block acceptance. Do not blanket-accept the status. Root properties were not overwritten: this is content restoration, **not full metadata/ACL preservation**. The runbook explains the string-valued summary counters and nested JSON. This behavior is source-reviewed, not a captured OneLake run or released-binary guarantee.
+
+Validation downloads all target Tables/Files and compares exact file/directory entries and file **SHA-256**, including empty directories. Directory entries have zero bytes/null content hashes; their path/type/presence are validated against the approved manifest. Exclude only the selected-root listing marker, never child directories; directory timestamps are diagnostic, not content equality. It checks SQL schema/counts, exact financial aggregates and API-readback definitions **before Search publication/release activation**.
+
+Unlike source-before/source-after checks, target SQL comparison excludes the principals, permissions and policies sections for **explicit manual security mapping and review**, not assumed equivalence. Independently verify item ACLs, OneLake/SQL access, labels and real allowed/denied users. Preserve the JSON evidence and receipt; successful data validation still states **`cutoverApproved=false`**. Finance acceptance and R1-R4 closure remain outstanding.
+
+#### Release the imported estate separately
+
+**First complete full-data and definition validation above.** Then rebuild **Azure AI Search outside Fabric** with `Publish-ResolverSearch.ps1` from the imported actual catalogue and approved version. Preserve curated rows/history; do **not** run the seeding generator to replace them. The copied `resolver_release` still contains source bindings and does not approve target traffic; activation changes the pre-activation validation baseline.
+
+Only after target Search and real allowed/denied-user permission checks pass may the release owner bind/activate the target release. **`Publish-ResolverData.ps1 -ActivateRelease` revalidates generated rows and may reject curated imported catalogues.** Use a reviewed version-specific publication approach preserving imported immutable content; do not bypass validation, regenerate demo rows or force a release pointer change to get past it.
+
+Review/publish the target Data Agent and verify delegated MCP requests. Prepare actual target `FABRIC_WORKSPACE_ID`, `FABRIC_DATA_AGENT_ID`, `FABRIC_SQL_ENDPOINT` and `FABRIC_DATABASE`; update Entra consent/principals and other tenant-specific application/channel configuration if the tenant changes. Authorize cutover only after customer finance/security and application acceptance. Retain the old environment/configuration for rollback, without destroying either side; reconcile any post-cutover writes before reverting. These are manual gates, not migration-script side effects.
 
 ### What the included seeding scripts do
 
@@ -405,7 +512,7 @@ If the release owner supplies the compatible dependency folder instead, set `$sq
 
 ### Run the existing scripts: stage, validate, index, activate
 
-Run these blocks **in order in the same PowerShell session**. Stop on any error. Replace example folders with customer locations. The prompts below ask only for IDs/endpoints, not secrets. Choose an approved, previously unused catalogue version; the example is not a requirement to use a particular date.
+**Fresh-baseline seeding route only:** imported estates use the migration publication gates above; do not regenerate their catalogue/history with these blocks. Run the following **in order in the same PowerShell session**. Stop on any error. Replace example folders with customer locations. The prompts ask only for IDs/endpoints, not secrets. Choose an approved, previously unused catalogue version; the example is not a requirement to use a particular date.
 
 ```powershell
 Set-Location 'C:\Customer\ZavaFinance-Seed'
@@ -534,6 +641,20 @@ The active release is authoritative for index and embedding binding. Never indep
 
 **Owner:** identity administrator with authority to register applications and an appropriately privileged consent approver. Follow the customer's PIM/approval process; subscription Contributor is not tenant application-administration authority.
 
+**Customer-admin workflow:** the customer creates and owns the target Entra configuration. Follow this section together with the [nine portal screenshots in Section 22](#22-entra-administrator-screenshot-reference), in which only source identifiers and personal data are masked. The screenshots show navigation in the source tenant, not settings to clone into the customer tenant.
+
+### Find the correct portal and divide responsibilities
+
+1. Open [Microsoft Entra admin center](https://entra.microsoft.com) and switch to the **customer tenant** before making changes.
+2. Select **Entra ID > App registrations > All applications**. Use **New registration** for the new finance app, or search by the approved **Application (client) ID** to inspect an existing registration. **Owned applications** can hide registrations created by someone else.
+3. For the finance app's service principal, use **Enterprise apps / Enterprise applications > All applications**, or the registration's **Overview > Managed application in local directory** link. Match the Application ID; the registration and service principal have different Object IDs.
+4. Coordinate the Bot identity with the platform/application owner. The selected Bot publishing workflow may provision its own registration. Do not create a duplicate Bot registration or assume that its Microsoft App ID is the finance OAuth client ID.
+5. The Foundry runtime's **managed identity** is managed on the Azure resource and represented by a service principal. It is not another ordinary app registration for the administrator to create manually.
+
+Assign only the directory permissions needed for the administrator's approved tasks and time window. App creation/ownership, credential administration, enterprise-app assignment and tenant consent are distinct authorities; do not request Global Administrator as a blanket prerequisite.
+
+**Fabric import boundary:** no new ZavaFinance registration is required just to run the documented interactive Fabric/Azure CLI import. Customer policies may still require consent for those tools. The finance registration below is required for the running application; it is not created or moved by the Fabric data import.
+
 ### Keep the identities distinct
 
 | Identity | Purpose / important distinction |
@@ -573,16 +694,39 @@ In **App registrations > API permissions > Add a permission**, add only the dele
 
 If the required API/scope is not present in the tenant's permission picker, stop and have the service/identity owner verify the published application's contract. Do not replace it with broad Microsoft Graph or application permissions.
 
+**Source reference, not a blanket grant request:** [screenshot E6](#e6-review-delegated-permissions-and-consent) shows these configured **delegated** permissions in the inspected source registration:
+
+| API shown in the source portal | Delegated permission shown | Customer review |
+| --- | --- | --- |
+| Azure SQL Database | `user_impersonation` | Required SQL token/access contract; still requires effective employee SQL permissions |
+| Power BI Service | `Item.Execute.All` | Source Fabric invocation permission; confirm the target published Data Agent's current supported contract |
+| Power Platform API | `CopilotStudio.Copilots.Invoke` | Source KPIpedia invocation permission; confirm the selected Copilot Studio authentication contract |
+| Microsoft Graph | `User.Read` | Source basic profile permission; retain only if required by the approved sign-in flow |
+
+The service owner's release contract and customer consent policy determine the target grants. A source green consent indicator is not customer consent. Do not add application permissions or wider directory/data access merely to make the lists look identical.
+
 ### SSO client authorization and Conditional Access
 
-In the finance registration's **Expose an API > Authorized client applications**, preauthorize the intended Teams clients for the approved exposed scope. Microsoft's Teams bot SSO guidance lists these public client IDs:
+In the finance registration's **Expose an API > Authorized client applications**, preauthorize the Microsoft client applications for the approved exposed scope. These are canonical Microsoft first-party IDs, identical in every tenant; enter them exactly as shown. [Microsoft's Teams bot SSO guidance](https://learn.microsoft.com/microsoftteams/platform/bots/how-to/authentication/bot-sso-register-aad) lists them as the IDs you must add for Teams, the Microsoft 365 app and Outlook. This release is delivered to **Teams and Microsoft 365 Copilot**, so its baseline is the following seven IDs:
 
-| Intended client | Microsoft client application ID |
-| --- | --- |
-| Teams desktop/mobile | `1fec8e78-bce4-4aaf-ab1b-5451cc387264` |
-| Teams web | `5e3ce6c0-2b1f-4285-8d4b-75ee78787346` |
+| Client application | Microsoft client application ID | Needed for |
+| --- | --- | --- |
+| Teams desktop and mobile | `1fec8e78-bce4-4aaf-ab1b-5451cc387264` | Teams, including Microsoft 365 Copilot in Teams |
+| Teams web | `5e3ce6c0-2b1f-4285-8d4b-75ee78787346` | Teams, including Microsoft 365 Copilot in Teams |
+| Microsoft 365 web | `4765445b-32c6-49b0-83e6-1d93765276ca` | Microsoft 365 Copilot in the Microsoft 365 app (web) |
+| Microsoft 365 desktop | `0ec893e0-5785-4de6-99da-4ed124e5296c` | Microsoft 365 Copilot in the Microsoft 365 app (desktop) |
+| Microsoft 365 mobile and Outlook desktop | `d3590ed6-52b3-4102-aeff-aad2292ab01c` | Microsoft 365 Copilot on mobile and in Outlook desktop |
+| Outlook web | `bc59ab01-8403-45c6-8796-ac3ef710b3e3` | Microsoft 365 Copilot in Outlook web |
+| Outlook mobile | `27922004-5251-4030-b22d-91ecd9a37ea4` | Microsoft 365 Copilot in Outlook mobile |
 
-For other Microsoft 365/Outlook surfaces, use only the additional client IDs required by the current Microsoft SSO guidance and the approved release. Do not preauthorize every listed client by default. Preauthorization is a consent decision: users are not offered a separate opportunity to decline those preauthorized scopes.
+Two further IDs need an explicit decision:
+
+| Client application | Microsoft client application ID | Status |
+| --- | --- | --- |
+| Microsoft Edge | `c0ab8ce9-e9a0-42e7-b064-33d422df41f1` | Listed by Microsoft but **not configured in the source**; add only if the Edge surface is approved and tested |
+| Office 365 Exchange Online | `00000002-0000-0ff1-ce00-000000000000` | **Configured in the source** (visible in [screenshot E4](#e4-expose-the-finance-api-and-authorize-sso-clients)) but not in Microsoft's SSO client list; keep only if the release owner confirms a dependency |
+
+If the customer limits the pilot to Teams, preauthorize only the two Teams IDs; each surface that is left out then shows a consent prompt or fails silent SSO until its ID is added. Preauthorization is a consent decision: users are not offered a separate opportunity to decline those preauthorized scopes.
 
 For the documented new-installation SSO pattern, set the Bot **Token Exchange URL** and package **`webApplicationInfo.resource`** to the finance SSO registration's **Application ID URI**, with its enabled scope. The **`webApplicationInfo.id`** and OAuth client ID remain that registration's client ID; the messaging Bot ID can differ.
 
@@ -597,6 +741,25 @@ Record separate operational dependencies for the **runtime OBO credential** and 
 The runtime contains an MI-federated OBO capability, but a fully secretless Bot-plus-runtime installation is not the validated default described here. A secret-prohibited tenant needs a supported, implemented and tested alternative before installation. A certificate-only rule is not met merely by uploading a certificate.
 
 **Exit evidence:** registration/SP IDs, exposed scope, token version/audience, actual downstream delegated grants, consent approval, pilot assignments, credential custody/expiry and SSO/CA test plan.
+
+### What the customer administrator hands back
+
+Provide the non-secret configuration below in the restricted installation record. Transfer credential **values** through the customer's secret-management channel, never this document or screenshots.
+
+| Deliverable | Where the administrator obtains/configures it | Consumer |
+| --- | --- | --- |
+| Customer tenant ID and finance Application (client) ID | Registration **Overview** | `OBO_TENANT_ID` / `OBO_CLIENT_ID`; .NET `Obo__TenantId` / `Obo__ClientId`; Bot finance OAuth connection |
+| Registration Object ID and separate enterprise-app Object ID | Registration **Overview** and enterprise-app **Properties** | Ownership, access review and audit; not replacements for the client ID |
+| Application ID URI, enabled finance scope name and full scope URI | **Expose an API** | Bot finance-scope setting, approved SSO resource and authorized client configuration |
+| Accepted access-token version and verified audience | **Manifest** and a controlled token-validation test | `OBO_AUDIENCE` / .NET `Obo__Audience`; do not publish the test token |
+| Web redirect URI and supported account type | **Authentication** | Single-tenant finance sign-in and the selected Bot OAuth provider |
+| Approved delegated API permissions and consent evidence | **API permissions**; enterprise-app **Permissions** where applicable | SQL, Fabric and KPIpedia delegated calls |
+| Credential custody reference, expiry and rotation owner | **Certificates & secrets** plus the customer secret store | Runtime OBO credential and Bot OAuth credential, configured and tested separately |
+| Authorized SSO client list and scope associations | **Expose an API > Authorized client applications** | The [Teams and Microsoft 365 Copilot client IDs](#sso-client-authorization-and-conditional-access), plus any separately approved additions |
+| Assignment policy, pilot groups, accountable owners and CA approval | Enterprise-app **Properties**, **Users and groups**, **Owners**; customer Conditional Access process | Controlled user admission and operations |
+| Separate Bot routing app IDs, if used | **Azure Bot > Configuration > Microsoft App ID**, reconciled with the platform owner | Selected Bot route and app package; not interchangeable with finance client ID |
+
+The administrator and application owner then perform allowed-user and denied-user tests, validate the actual token audience and downstream delegated calls, and check **Enterprise application > Sign-in logs** for the test results. Do not close the handover on portal screenshots alone.
 
 ## 9. RBAC and effective permissions
 
@@ -1127,6 +1290,7 @@ The installation owner assembles a customer-controlled evidence pack. Link to re
 | Artifact/hash, native runtime/protocol, agent version and configuration record | Application release owner |
 | Bot endpoint, routing identity, `mcs` settings and channel test | Bot/identity owner |
 | Fabric source permissions, catalogue/Search release, published Data Agent and reconciled values | Finance/Fabric owner |
+| If migrating: actual full-export/import rehearsal, independent manifest approval, exact readback/SQL/definition results, target principal review, manual publication/cutover approval and rollback evidence | Migration, finance, security and application release owners |
 | Published KPIpedia, solution/connections and DLP approval | Power Platform owner |
 | App-package hash/version, customer branding, approval, licences and installations | Microsoft 365 owner |
 | Positive/negative acceptance results for two real users | Application/security/data owners |
@@ -1136,7 +1300,7 @@ The installation owner assembles a customer-controlled evidence pack. Link to re
 
 ## 20. References
 
-Microsoft documentation reviewed for this design as of **21 September 2026**. Recheck product prerequisites, UI labels, role definitions and feature availability before executing a change. These links describe service contracts; they are not evidence that the customer's environment has passed acceptance.
+Reference register for **edition 1.2, 30 September 2026**. Recheck product prerequisites, UI labels, role definitions and feature availability before executing a change. These links describe service contracts; they are not evidence of live-tested CLI versions or customer acceptance.
 
 ### Foundry hosting, state and networking
 
@@ -1177,6 +1341,11 @@ Microsoft documentation reviewed for this design as of **21 September 2026**. Re
 - [Fabric SQL connectivity requirements](https://learn.microsoft.com/fabric/data-warehouse/connectivity).
 - [Load CSV or Parquet files to Lakehouse Delta tables](https://learn.microsoft.com/fabric/data-engineering/load-to-tables).
 - [Lakehouse SQL analytics endpoint and read-only data boundary](https://learn.microsoft.com/fabric/data-engineering/lakehouse-sql-analytics-endpoint).
+- [Fabric estate migration companion runbook](https://github.com/gbelenky/ZavaFinance/blob/main/docs/fabric-estate-migration.md).
+- [Microsoft Fabric CLI installation and authentication](https://microsoft.github.io/fabric-cli/#install-the-cli).
+- [Microsoft Fabric CLI release notes](https://microsoft.github.io/fabric-cli/release-notes/).
+- [Install and get started with AzCopy](https://learn.microsoft.com/azure/storage/common/storage-use-azcopy-v10).
+- [Move data to/from OneLake with AzCopy](https://learn.microsoft.com/fabric/onelake/onelake-azcopy).
 - [Private Link scope for Data Agent sources](https://learn.microsoft.com/fabric/security/security-private-links-overview#data-agent).
 - [Copilot Studio data-loss prevention](https://learn.microsoft.com/microsoft-copilot-studio/admin-data-loss-prevention).
 - [Power Platform endpoint filtering limitations](https://learn.microsoft.com/power-platform/admin/connector-endpoint-filtering).
@@ -1192,3 +1361,93 @@ The Azure-stencil diagram below applies to both the .NET and Python implementati
 **How to read the diagram:** solid arrows represent application calls and replies; dashed arrows represent identity relationships. The dashed environment boundary means planned. Boundaries are logical service groupings, not virtual networks. MI means managed identity; OBO means on-behalf-of delegated access using the signed-in employee's permissions.
 
 **Production gates:** promote the same tested artifact through gated releases, isolate data and identities by environment, define recovery objectives and test restores. The Activity API remains Preview even with GA Cosmos DB. Cosmos persistence does not add durable in-flight execution. Fresh SSO, two-user isolation, concurrent turns, financial correctness and private-network connectivity require end-to-end validation.
+
+## 22. Entra administrator screenshot reference
+
+**Captured 5 October 2026 in a maximized external Edge window, using read-only navigation in the source tenant.** No registration, credential, consent grant, assignment or policy was created or changed to obtain these images. The blank registration form was opened but not submitted.
+
+Only source-specific identifiers and personal data are masked. Each masked value is permanently replaced in the image by a **yellow labelled placeholder**, not a reversible blur or a PDF overlay. Everything else is shown unchanged so an administrator can follow each step: application name, menus, settings, toggles, permission names, redirect URI, consent text and dates. The PNGs contain only the masked image; unredacted originals, browser profiles and sign-in data are not part of the handover.
+
+| Placeholder | Meaning | Customer value |
+| --- | --- | --- |
+| `‹signed-in-account›` | Source administrator's account menu | Not needed |
+| `‹organization›` | Source tenant name | Customer tenant name shown in the customer portal |
+| `‹tenant-id›` | Source Directory (tenant) ID | Record from the customer registration **Overview** |
+| `‹application-client-id›` | Source Application (client) ID | Record from the customer registration **Overview** |
+| `‹application-object-id›` | Source registration Object ID | Record from the customer registration **Overview** |
+| `‹service-principal-object-id›` | Source enterprise-app Object ID (differs from the registration Object ID) | Record from the customer enterprise app **Properties** |
+| `‹bot-app-id›` | Source Bot app ID inside `api://botid-…` | Customer Bot's Microsoft App ID |
+| `‹secret-hint›`, `‹secret-id›` | First characters of the source client secret and its ID | Created by the customer; never copied |
+| `‹assigned-user-or-group›` | Source user or group assigned to the app | Customer-approved pilot users or groups |
+
+The client IDs visible under **Authorized client applications** in E4 are canonical Microsoft first-party IDs for Teams, Microsoft 365, Outlook and Office 365 Exchange Online. They are identical in every tenant and must be entered exactly, so they are not masked; the full list is in [Section 8](#sso-client-authorization-and-conditional-access).
+
+Use [Section 8](#8-microsoft-entra-app-registration-and-consent) for the required customer decisions and handback record. These source screenshots identify portal locations, not a security baseline: do not copy the source consent choices, client list, credential count or assignment policy. Disabled controls can reflect the reference session's permissions. Portal labels and layout can differ; **Authentication (Preview)** is the label of the captured portal experience.
+
+The PDF places every screenshot on a landscape A3 reference page to keep the controls readable. The source PNGs are also available through the images below.
+
+| Screenshot | Customer administrator task |
+| --- | --- |
+| [E1. App registrations](#e1-locate-app-registrations) | Find the correct registration in the customer tenant |
+| [E2. New registration](#e2-create-the-customer-finance-registration) | Create the customer-owned single-tenant finance application |
+| [E3. Overview](#e3-record-identifiers-and-locate-the-service-principal) | Record IDs and find the corresponding enterprise app |
+| [E4. Expose an API](#e4-expose-the-finance-api-and-authorize-sso-clients) | Configure the finance scope and approved SSO clients |
+| [E5. Authentication](#e5-configure-the-web-redirect-and-account-type) | Configure the Web redirect and account type |
+| [E6. API permissions](#e6-review-delegated-permissions-and-consent) | Review delegated grants and customer consent |
+| [E7. Credentials](#e7-provision-and-hand-over-the-approved-credential) | Provision a customer credential through secure custody |
+| [E8. Enterprise-app properties](#e8-apply-the-customer-enterprise-app-access-policy) | Apply the approved sign-in and assignment policy |
+| [E9. Users and groups](#e9-assign-approved-users-and-groups) | Assign approved pilot identities and test access |
+
+### E1. Locate app registrations
+
+**Path:** Entra ID > App registrations > All applications. In the customer tenant, choose **New registration** or filter by the customer finance Application (client) ID. Do not search for a Fabric workspace, Lakehouse or Data Agent here; those are Fabric items, not Entra registrations.
+
+![E1 - App registrations and the All applications tab](images/entra-admin/app-registrations.png)
+
+### E2. Create the customer finance registration
+
+**Path:** App registrations > New registration. Enter a customer-owned, environment-specific name and choose **single tenant / accounts in this organizational directory only**. The source organization name in the account-type field is replaced by `‹organization›`. The customer administrator completes registration after approval; this reference form was not submitted.
+
+![E2 - Blank application registration form, not submitted](images/entra-admin/new-registration.png)
+
+### E3. Record identifiers and locate the service principal
+
+**Path:** App registrations > selected finance application > Overview. Record the customer Application (client) ID, Directory (tenant) ID and registration Object ID. Follow **Managed application in local directory** to the enterprise app, and record its different Object ID separately.
+
+![E3 - Registration overview and the enterprise-application link](images/entra-admin/registration-overview.png)
+
+### E4. Expose the finance API and authorize SSO clients
+
+**Path:** App registrations > selected finance application > Expose an API. Configure the approved customer Application ID URI, enabled delegated finance scope, consent text and consent policy. The inspected source uses the scope name `defaultScopes`; use the delivered release contract for the customer value. Under **Authorized client applications**, enter the [canonical Teams and Microsoft 365 Copilot client IDs from Section 8](#sso-client-authorization-and-conditional-access); they are shown unmasked here. Seven source rows match that list. The eighth, Office 365 Exchange Online (`00000002-0000-0ff1-ce00-000000000000`), is a source-only entry that needs release-owner confirmation before it is copied.
+
+![E4 - Exposed API scopes and authorized client applications](images/entra-admin/expose-api.png)
+
+### E5. Configure the Web redirect and account type
+
+**Path:** App registrations > selected finance application > Authentication. For the documented Azure public-cloud Bot OAuth flow, configure the **Web** redirect `https://token.botframework.com/.auth/web/redirect`. Verify the single-tenant account type and approved token/flow settings. Do not enable implicit grants, public-client flows or extra redirects to bypass a sign-in failure.
+
+![E5 - Authentication and the Bot OAuth Web redirect URI](images/entra-admin/authentication.png)
+
+### E6. Review delegated permissions and consent
+
+**Path:** App registrations > selected finance application > API permissions. Review the required **delegated** grants with the SQL, Fabric and KPIpedia owners, then have the authorized customer consent approver grant consent where required. The source permission names and their limitations are documented in Section 8. No consent action was performed for this capture.
+
+![E6 - Delegated API permissions and the tenant consent control](images/entra-admin/api-permissions.png)
+
+### E7. Provision and hand over the approved credential
+
+**Path:** App registrations > selected finance application > Certificates & secrets. For this release's documented secret-based baseline, the customer administrator creates the approved credential, stores its **value** immediately in the secret system, and records its expiry/owner. Secret IDs are not secret values; existing values cannot be retrieved later. Configure the runtime and Bot OAuth consumers separately. A certificate or federation alternative requires its own supported, tested end-to-end design.
+
+![E7 - Credential management; only the secret hint and Secret ID are masked](images/entra-admin/certificates-secrets.png)
+
+### E8. Apply the customer enterprise-app access policy
+
+**Path:** Enterprise apps / Enterprise applications > selected finance application > Properties. Confirm the Application ID, record the service-principal Object ID, and apply the customer's sign-in and assignment policy. **The source screenshot shows Assignment required = No; do not copy that setting as the customer baseline.** For an approved assignment-restricted pilot, set **Yes** and configure the permitted users/groups before testing. My Apps visibility is not an authorization control.
+
+![E8 - Enterprise-application properties; source assignment policy is not a customer recommendation](images/entra-admin/enterprise-properties.png)
+
+### E9. Assign approved users and groups
+
+**Path:** Enterprise apps / Enterprise applications > selected finance application > Users and groups. Use **Add user/group** for the approved customer pilot identities, following the chosen assignment policy and license requirements. No source users or groups are transferred. Test an assigned user and a deliberately unassigned or otherwise denied user; application assignment does not grant Fabric SQL or Data Agent access by itself.
+
+![E9 - Enterprise-application assignments; assigned identity names masked](images/entra-admin/enterprise-assignments.png)

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "tenantId": "11111111-1111-1111-1111-111111111111",
+  "workspaces": [
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "lakehouses": [
+        {
+          "id": "33333333-3333-3333-3333-333333333333",
+          "sqlServer": "replace-with-source.datawarehouse.fabric.microsoft.com",
+          "sqlDatabase": "replace-with-source-database",
+          "requireZavaContract": true
+        }
+      ]
+    }
+  ]
+}
